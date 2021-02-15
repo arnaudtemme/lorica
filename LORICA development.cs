@@ -402,10 +402,11 @@ namespace LORICA4
         private TextBox calibration_ratios_textbox;
         private TextBox calibration_levels_textbox;
         private Label label116;
-        private TextBox ratio_reduction_parameter_textbox;
+        private TextBox calibration_ratio_reduction_parameter_textbox;
         private Label label119;
         private Label label120;
         private CheckBox version_lux_checkbox;
+        private Button button4;
         private System.Drawing.Bitmap m_objDrawingSurface;
         [System.Runtime.InteropServices.DllImport("gdi32.dll")]
         public static extern long BitBlt(IntPtr hdcDest, int nXDest, int nYDest, int nWidth,
@@ -671,9 +672,12 @@ namespace LORICA4
                 wet_cells, eroded_cells, deposited_cells,
                 P_scen;
         //calibration globals
-        int maxruns, calib_levels, user_specified_number_of_calibration_parameters;
-        double reduction_factor;
-        double[] calib_ratios = new double[5];
+        int maxruns, best_run, calib_levels, user_specified_number_of_calibration_parameters, user_specified_number_of_ratios;
+        double reduction_factor, best_error;
+        //USER INPUT NEEDED: establish best versions of parameters varied in calibration:
+        double[] best_parameters;
+        double[,] calib_ratios ;
+        double[] original_ratios;
 
         private void rain_input_filename_textbox_TextChanged_1(object sender, EventArgs e)
         {
@@ -770,6 +774,13 @@ namespace LORICA4
                 total_sed_export_up, total_sed_export_mid, total_sed_export_low,
                 total_sed_prod_up, total_sed_prod_mid, total_sed_prod_low,
                 total_sed_dep_up, total_sed_dep_mid, total_sed_dep_low;  // counters for logging and reporting through time
+
+        private void button4_Click(object sender, EventArgs e)
+        {
+            try{ calculate_terrain_derivatives(); MessageBox.Show("terrain derivatives calculation succeeded"); }
+            catch { MessageBox.Show("terrain derivatives calculation failed"); }
+
+        }
 
         private void radioButton1_CheckedChanged(object sender, EventArgs e)
         {
@@ -1233,10 +1244,11 @@ namespace LORICA4
             this.saveintervalbox = new System.Windows.Forms.TextBox();
             this.label78 = new System.Windows.Forms.Label();
             this.Run = new System.Windows.Forms.TabPage();
+            this.button4 = new System.Windows.Forms.Button();
             this.version_lux_checkbox = new System.Windows.Forms.CheckBox();
             this.groupBox2 = new System.Windows.Forms.GroupBox();
             this.label120 = new System.Windows.Forms.Label();
-            this.ratio_reduction_parameter_textbox = new System.Windows.Forms.TextBox();
+            this.calibration_ratio_reduction_parameter_textbox = new System.Windows.Forms.TextBox();
             this.label119 = new System.Windows.Forms.Label();
             this.calibration_levels_textbox = new System.Windows.Forms.TextBox();
             this.label116 = new System.Windows.Forms.Label();
@@ -3008,7 +3020,7 @@ namespace LORICA4
             "weathering per process"});
             this.checkedListBox1.Location = new System.Drawing.Point(119, 96);
             this.checkedListBox1.Name = "checkedListBox1";
-            this.checkedListBox1.Size = new System.Drawing.Size(152, 94);
+            this.checkedListBox1.Size = new System.Drawing.Size(152, 64);
             this.checkedListBox1.TabIndex = 0;
             this.checkedListBox1.Visible = false;
             // 
@@ -3168,6 +3180,7 @@ namespace LORICA4
             // 
             // Run
             // 
+            this.Run.Controls.Add(this.button4);
             this.Run.Controls.Add(this.version_lux_checkbox);
             this.Run.Controls.Add(this.groupBox2);
             this.Run.Controls.Add(this.calibration);
@@ -3179,6 +3192,16 @@ namespace LORICA4
             this.Run.TabIndex = 8;
             this.Run.Text = "Run";
             this.Run.UseVisualStyleBackColor = true;
+            // 
+            // button4
+            // 
+            this.button4.Location = new System.Drawing.Point(102, 228);
+            this.button4.Name = "button4";
+            this.button4.Size = new System.Drawing.Size(163, 41);
+            this.button4.TabIndex = 7;
+            this.button4.Text = "now purely calculate terrain derivatives";
+            this.button4.UseVisualStyleBackColor = true;
+            this.button4.Click += new System.EventHandler(this.button4_Click);
             // 
             // version_lux_checkbox
             // 
@@ -3193,7 +3216,7 @@ namespace LORICA4
             // groupBox2
             // 
             this.groupBox2.Controls.Add(this.label120);
-            this.groupBox2.Controls.Add(this.ratio_reduction_parameter_textbox);
+            this.groupBox2.Controls.Add(this.calibration_ratio_reduction_parameter_textbox);
             this.groupBox2.Controls.Add(this.label119);
             this.groupBox2.Controls.Add(this.calibration_levels_textbox);
             this.groupBox2.Controls.Add(this.label116);
@@ -3221,13 +3244,13 @@ namespace LORICA4
             this.label120.TabIndex = 13;
             this.label120.Text = "1. describe the parameter values in code";
             // 
-            // ratio_reduction_parameter_textbox
+            // calibration_ratio_reduction_parameter_textbox
             // 
-            this.ratio_reduction_parameter_textbox.Location = new System.Drawing.Point(338, 148);
-            this.ratio_reduction_parameter_textbox.Name = "ratio_reduction_parameter_textbox";
-            this.ratio_reduction_parameter_textbox.Size = new System.Drawing.Size(66, 20);
-            this.ratio_reduction_parameter_textbox.TabIndex = 12;
-            this.ratio_reduction_parameter_textbox.Text = "2";
+            this.calibration_ratio_reduction_parameter_textbox.Location = new System.Drawing.Point(338, 148);
+            this.calibration_ratio_reduction_parameter_textbox.Name = "calibration_ratio_reduction_parameter_textbox";
+            this.calibration_ratio_reduction_parameter_textbox.Size = new System.Drawing.Size(66, 20);
+            this.calibration_ratio_reduction_parameter_textbox.TabIndex = 12;
+            this.calibration_ratio_reduction_parameter_textbox.Text = "1.5";
             // 
             // label119
             // 
@@ -6046,7 +6069,7 @@ namespace LORICA4
             int z, dem_integer_error = 1;
             string[] lineArray2;
             int sp;
-            //MessageBox.Show("Opening " + FILE_NAME);
+            //MessageBox.Show("Opening DEM" + FILE_NAME);
             //MessageBox.Show("Directory " + Directory.GetCurrentDirectory() );
 
             if (!File.Exists(FILE_NAME))
@@ -6226,6 +6249,7 @@ namespace LORICA4
             string input;
             int tttt = 0;
             int x, y, xcounter;
+            Debug.WriteLine(" Reading " + FILE_NAME + " from " + Directory.GetCurrentDirectory()); 
             if (!File.Exists(FILE_NAME))
             {
                 MessageBox.Show("No such data file " + FILE_NAME);
@@ -6238,6 +6262,26 @@ namespace LORICA4
             for (z = 1; z <= 6; z++)
             {
                 input = sr.ReadLine();
+                /*if (z == 1)
+                {
+                    string[] lineArray;
+                    lineArray = input.Split(new char[] { ' ' });
+                    Debug.WriteLine(input + " here " + lineArray[1] + " there " );
+                    if (int.Parse(lineArray[1]) != nc)
+                    {
+                        Debug.WriteLine(filename + " has different cols than the DEM ");
+                    }
+                }
+                if (z == 2)
+                {
+                    string[] lineArray;
+                    lineArray = input.Split(new char[] { ' ' });
+                    Debug.WriteLine(lineArray[1]);
+                    if (int.Parse(lineArray[1]) != nr)
+                    {
+                        Debug.WriteLine(filename + " has different rows than the DEM ");
+                    }
+                } */
             }
             y = 0;
             while ((input = sr.ReadLine()) != null)
@@ -6599,7 +6643,7 @@ namespace LORICA4
         {
             int layer, row, col;
             string filename = workdir + "\\" + filecore + t + ".lrc";
-            Debug.WriteLine("attempting to write output " + filename + " at t " + t);
+            //Debug.WriteLine("attempting to write output " + filename + " at t " + t);
             using (StreamWriter sw = new StreamWriter(filename))
             {
                 try
@@ -6979,6 +7023,18 @@ namespace LORICA4
                     catch { read_error = 1; }
                     try { Number_runs_textbox.Text = xreader.ReadElementString("number_runs"); }
                     catch { read_error = 1; }
+
+                    try { xreader.ReadStartElement("CalibrationSensitivity"); }
+                    catch { read_error = 2; }
+                    try { 
+                        Calibration_button.Checked = XmlConvert.ToBoolean(xreader.ReadElementString("calibration_active_button"));
+                        calibration_ratios_textbox.Text = xreader.ReadElementString("calibration_ratios_string");
+                        calibration_levels_textbox.Text = xreader.ReadElementString("calibration_levels");
+                        calibration_ratio_reduction_parameter_textbox.Text = xreader.ReadElementString("calibration_ratio_reduction_per_level");
+                        xreader.ReadEndElement();
+                    }
+                    catch { read_error = 2; }
+
                     try { xreader.ReadEndElement(); }
                     catch { read_error = 1; }
 
@@ -7409,6 +7465,14 @@ namespace LORICA4
                 xwriter.WriteStartElement("Run");
                 xwriter.WriteElementString("runs_radiobutton", XmlConvert.ToString(runs_checkbox.Checked));
                 xwriter.WriteElementString("number_runs", Number_runs_textbox.Text);
+                
+                xwriter.WriteStartElement("CalibrationSensitivity");
+                xwriter.WriteElementString("calibration_active_button", XmlConvert.ToString(Calibration_button.Checked));
+                xwriter.WriteElementString("calibration_ratios_string", calibration_ratios_textbox.Text);
+                xwriter.WriteElementString("calibration_levels", calibration_levels_textbox.Text);
+                xwriter.WriteElementString("calibration_ratio_reduction_per_level", calibration_ratio_reduction_parameter_textbox.Text);
+                xwriter.WriteEndElement();
+
                 xwriter.WriteEndElement();
 
                 xwriter.WriteStartElement("Output");
@@ -7535,7 +7599,6 @@ namespace LORICA4
             }
         }
 
-
         private void read_soil_elevation_distance_from_output(int time, string dir)
         {
             // read latest output and start calculating from there
@@ -7629,10 +7692,7 @@ namespace LORICA4
                 }
             }
         }
-
-
-
-
+        
         #endregion
 
         #region depression code
@@ -7700,11 +7760,11 @@ namespace LORICA4
             //reports
 
             this.InfoStatusPanel.Text = "found " + numsinks + " true sinks in " + nr * nc + "  cells";
-            Debug.WriteLine("\n\n--sinks overview at t = " + t + "--");
+            //Debug.WriteLine("\n\n--sinks overview at t = " + t + "--");
 
             if (numsinks / (nr * nc) > 0.0075) { Debug.WriteLine("this DEM contains " + numsinks + " true sinks in " + nr * nc + "  cells\n That's a lot!"); }
             else { Debug.WriteLine("this DEM contains " + numsinks + " true sinks in " + nr * nc + "  cells"); }
-            Debug.WriteLine(" equals: " + twoequals / 2 + " double, " + threeequals / 3 + " triple and about " + moreequals + " larger\n");
+            //Debug.WriteLine(" equals: " + twoequals / 2 + " double, " + threeequals / 3 + " triple and about " + moreequals + " larger\n");
 
             // 
             //.WriteLine(" numberofweirdoutlets: " + numberofweirdoutlets + "\n\n"); 
@@ -8089,17 +8149,17 @@ namespace LORICA4
                 }  // end for  col
             } // end for   row
 
-            Debug.WriteLine("\n\n--depressions overview--");
+            //Debug.WriteLine("\n\n--depressions overview--");
             if (totaldepressions != 0)
             {
-                Debug.WriteLine("found " + totaldepressions + "  depressions containing " + totaldepressionsize + "  cells, with a volume of " + totaldepressionvolume);
+                //Debug.WriteLine("found " + totaldepressions + "  depressions containing " + totaldepressionsize + "  cells, with a volume of " + totaldepressionvolume);
                 //Debug.WriteLine(" " + totaldepressions + " depressions with a volume of " + totaldepressionvolume );  
                 //Debug.WriteLine("depression " + largestdepression + "  is largest by area: " + maxsize + " cells " + depressionlevel[largestdepression] + " m " + depressionvolume[largestdepression] + "m3");
                 //if (depressionvolume[largestdepression] < 0) { Debug.WriteLine("negative depressionvolume found"); }
             }
             else
             {
-                Debug.WriteLine(" no depressions found ");
+                //Debug.WriteLine(" no depressions found ");
 
             }
             //Debug.WriteLine("\n");
@@ -9035,6 +9095,253 @@ namespace LORICA4
             return (check);
         }
 
+        void calculate_terrain_derivatives()
+        {
+            //takes the DTM and calculates key derivatives and writes these to ASCII files
+            try { dtm_file(dtm_input_filename_textbox.Text); }
+            catch { Debug.WriteLine("could not read DEM for derivative calculation"); }
+
+            //declare rasters and memory
+            double[,] ledges, nedges, hedges, hhcliff, hlcliff, slhcliff, sllcliff, terruggedindex, ledgeheight;
+            int[,] ledgenames;
+            terruggedindex = new double[nr, nc];
+            ledges = new double[nr, nc];
+            nedges = new double[nr, nc];
+            hedges = new double[nr, nc];
+            hhcliff = new double[nr, nc];
+            hlcliff = new double[nr, nc];
+            slhcliff = new double[nr, nc];
+            sllcliff = new double[nr, nc];
+            ledgeheight = new double[nr, nc];
+            ledgenames = new int[nr, nc];
+            int runner = 0;
+
+            //Topographic Ruggedness Index (Riley, S.J., DeGloria, S.D., Elliot, R., 1999. A terrain ruggedness index that quantifies topographic heterogeneity. Intermt. J. Sci. 5, 23–27.)
+            double sum_squared_difference = 0; int num_nbs = 0;
+            try
+            {
+                for (row = 0; row < nr; row++)
+                {
+                    for (col = 0; col < nc; col++)
+                    {
+                        if (dtm[row, col] != -9999)
+                        {
+                            sum_squared_difference = 0;
+                            num_nbs = 0;
+                            for (i = (-1); i <= 1; i++)
+                            {
+                                for (j = (-1); j <= 1; j++)
+                                {
+                                    if (!(i == 0 && j == 0) && (row + i) >= 0 && (col + j) >= 0 && (row + i) < nr && (col + j) < nc)
+                                    {
+                                        if (dtm[row + i, col + j] != -9999)
+                                        {
+                                            sum_squared_difference += Math.Pow((dtm[row, col] - dtm[row + i, col + j]), 2);
+                                            num_nbs++;
+                                        }
+                                    }
+                                }
+                            }
+                            if (num_nbs == 0) { minimaps(row, col); terruggedindex[row, col] = -9999; }
+                            else { terruggedindex[row, col] = Math.Sqrt(sum_squared_difference) * (8 / num_nbs); }
+                        }
+                    }
+                }
+                out_double("ruggednessindex.asc", terruggedindex);
+                Debug.WriteLine("terrain ruggedness index calculation and storage successfull");
+            }
+            catch { Debug.WriteLine("terrain ruggedness index calculation or storage failed"); }
+
+
+            // Properties of possible ledges on the hillslope above and below each cell.
+            //We need to ingest ledge positions
+            try { read_integer("ledgenames.asc", ledgenames); Debug.WriteLine("ledgenames read successfully"); }
+            catch { Debug.WriteLine("ledgenames not found"); }
+
+            //then calculate local properties of the landscape around ledges. We expect that ledge positions may be up to 1 cell wrong.
+            double maxcliffheight = 0;
+            for (row = 0; row < nr; row++)
+            {
+                for (col = 0; col < nc; col++)
+                {
+                    ledges[row, col] = -9999;
+                    nedges[row, col] = -9999;
+                    hedges[row, col] = -9999;
+                    hhcliff[row, col] = -9999;
+                    hlcliff[row, col] = -9999;
+                    slhcliff[row, col] = -9999;
+                    sllcliff[row, col] = -9999;
+                    ledgeheight[row, col] = -9999;
+                    if (dtm[row, col] != -9999 ){
+                        ledges[row, col] = 0;
+                        nedges[row, col] = 0;
+                        hedges[row, col] = 0;
+                        hhcliff[row, col] = 0;
+                        hlcliff[row, col] = 0;
+                        slhcliff[row, col] = 0;
+                        sllcliff[row, col] = 0;
+                        ledgeheight[row, col] = 0;
+                        if (ledgenames[row, col] != -9999)
+                        {
+                            try
+                            {
+                                maxcliffheight = 0;
+                                for (i = (-1); i <= 1; i++)
+                                {
+                                    for (j = (-1); j <= 1; j++)
+                                    {
+                                        if (!(i == 0 && j == 0) && row + i >= 0 && col + j >= 0 && row + i < nr && col + j < nc)
+                                        {
+                                            if (dtm[row + i, col + j] != -9999)
+                                            {
+                                                for (ii = (-1); ii <= 1; ii++)
+                                                {
+                                                    for (jj = (-1); jj <= 1; jj++)
+                                                    {
+                                                        if (!(i+ii == 0 && j+jj == 0) && row + i + ii >= 0 && col + j + jj >= 0 && row + i + ii < nr && col + j + jj < nc)
+                                                        {
+                                                            if (dtm[row + i + ii, col + j + jj] != -9999)
+                                                            {
+                                                                if (Math.Abs(dtm[row + i + ii, col + j + jj] - dtm[row + i, col + j]) > maxcliffheight) { maxcliffheight = Math.Abs(dtm[row + i + ii, col + j + jj] - dtm[row + i, col + j]); }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                ledgeheight[row, col] = maxcliffheight;
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            Debug.WriteLine("ledgeheights determined");
+
+            //now, we sort the dtm from high to low and walk through it from high to low to assign ledge properties to 
+            comb_sort();
+            for (runner = number_of_data_cells - 1; runner >= 0; runner--)
+            {     // the index is sorted from low to high values, but flow goes from high to low
+                if (index[runner] != -9999)
+                {
+                    row = row_index[runner]; col = col_index[runner];
+                    //Debug.WriteLine("now at row " + row + " col " + col + " alt " + dtm[row, col]);
+                    if (ledgenames[row, col] != -9999) {
+                        //we are on a ledge. Setting and resetting time
+                        hhcliff[row, col] = ledgeheight[row, col];
+                        slhcliff[row, col] = hhcliff[row, col] / dx;
+                        hedges[row, col]++;
+                    }
+                    else
+                    {
+                        double tempslhcliff = 0, steepest = 0, steepness, distance, steepdist = 0; 
+                        for (i = (-1); i <= 1; i++)
+                        {
+                            for (j = (-1); j <= 1; j++)
+                            {
+                                if (!(i == 0 && j == 0) && (row + i >= 0) && (col + j >= 0) && (row + i < nr) && (col + j < nc))
+                                {
+                                    if (dtm[row + i, col + j] != -9999)
+                                    {
+                                        if (dtm[row + i, col + j] > dtm[row, col])
+                                        {
+                                            if (i==0 || j == 0) { distance = dx; } else { distance = dx * 1.414; }
+                                            steepness = (dtm[row + i, col + j] - dtm[row, col]) / distance;
+                                            if (steepness > steepest)
+                                            {
+                                                //we copy the cliffheight from the steepest neighbour cell
+                                                steepdist = distance;
+                                                steepest = steepness;
+                                                hhcliff[row, col] = hhcliff[row + i, col + j]; tempslhcliff = slhcliff[row + i, col + j];
+                                                hedges[row, col] = hedges[row + i, col + j];
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        //we now have an updated hhcliff, so we can also update slhcliff
+                        slhcliff[row, col] = hhcliff[row, col] / (steepdist + hhcliff[row, col] / tempslhcliff);
+                    }
+                }
+            }
+            Debug.WriteLine("downslope variables calculated");
+
+            //now, we walk the other way (from low to high in the DTM). 
+            for (runner = 0; runner < number_of_data_cells; runner++)
+            {
+                if (index[runner] != -9999)
+                {
+                    row = row_index[runner]; col = col_index[runner];
+                    if (ledgenames[row, col] != -9999)
+                    {
+                        //we are on a ledge. Setting and resetting time
+                        hlcliff[row, col] = ledgeheight[row, col];
+                        sllcliff[row, col] = hlcliff[row, col] / dx;
+                        ledges[row, col]++;
+                    }
+                    else
+                    {
+                        double tempsllcliff = 0, steepest = 0, steepness = 0, distance = 0, steepdist = 0 ;
+                        for (i = (-1); i <= 1; i++)
+                        {
+                            for (j = (-1); j <= 1; j++)
+                            {
+                                if (!(i == 0 && j == 0) && row + i >= 0 && col + j >= 0 && row + i < nr && col + j < nc)
+                                {
+                                    if (dtm[row + i, col + j] != -9999)
+                                    {
+                                        if (dtm[row + i, col + j] < dtm[row, col])
+                                        {
+                                            if (i == 0 || j == 0) { distance = dx; } else { distance = dx * 1.414; }
+                                            steepness = -(dtm[row + i, col + j] - dtm[row, col]) / distance;
+                                            if (steepness > steepest)
+                                            {
+                                                //we copy the cliffheight from the steepest neighbour cell
+                                                steepdist = distance;
+                                                steepest = steepness;
+                                                hlcliff[row, col] = hlcliff[row + i, col + j]; tempsllcliff = sllcliff[row + i, col + j];
+                                                ledges[row, col] = ledges[row + i, col + j];
+                                            }
+                                        }
+
+
+                                    }
+                                }
+                            }
+                        }
+                        //we now have an updated hhcliff, so we can also update slhcliff
+                        sllcliff[row, col] = hlcliff[row, col] / (steepdist + hlcliff[row, col] / tempsllcliff);
+                    }
+                }
+            }
+            Debug.WriteLine("upslope variables calculated");
+
+            //finally, add up ledges and hedges to get nedges
+            for (row = 0; row < nr; row++)
+            {
+                for (col = 0; col < nc; col++)
+                {
+                    if (dtm[row, col] != -9999)
+                    {
+                        nedges[row, col] = ledges[row, col] + hedges[row, col];
+                    }
+                }
+            }
+
+            //now write all these rasters to ascii:
+            out_double("ledgeheights.asc", ledgeheight);
+            out_double("nedges.asc", nedges);
+            out_double("hedges.asc", hedges);
+            out_double("ledges.asc", ledges);
+            out_double("hhcliff.asc", hhcliff);
+            out_double("hlcliff.asc", hlcliff);
+            out_double("slhcliff.asc", slhcliff);
+            out_double("sllcliff.asc", sllcliff);
+            Debug.WriteLine("variables exported to ASCII");
+        }
         #endregion
 
         #region initialisation code
@@ -9426,7 +9733,7 @@ namespace LORICA4
             catch { Debug.WriteLine("timeseries preparation was unsuccesful"); }
 
             //if ((Final_output_checkbox.Checked && t == end_time) || (Regular_output_checkbox.Checked && (t % (int.Parse(Box_years_output.Text)) == 0)))
-            Debug.WriteLine(" successfully ended initialisations  ");
+            //Debug.WriteLine(" successfully ended initialisations  ");
         }
 
         void initialise_soil_standard()
@@ -9594,7 +9901,7 @@ namespace LORICA4
         void initialise_soil()
         {
             double depth_m;
-            Debug.WriteLine("initialising soil");
+            //Debug.WriteLine("initialising soil");
             // At this point, we know the input soildepth at every location (may be zero). 
             // We do not yet know how many layers that corresponds to.
             // If soildepth is not zero, we will calculate the number of layers and assign thicknesses and material to them.
@@ -9702,7 +10009,7 @@ namespace LORICA4
 
                 } // end col
             } // end row
-            Debug.WriteLine("initialised soil");
+            //Debug.WriteLine("initialised soil");
 
         } // anngepast voor standaard diktes
 
@@ -12896,6 +13203,9 @@ namespace LORICA4
                             hornbeam_cover_fraction[row,col] = 1-Math.Exp(a + b * tpi[row,col]) / (1 + Math.Exp(a + b * tpi[row, col]));
                         }
                     }
+                    //this line keeps young (hornbeam) OM completely gone from the surface every second year (reflecting that,
+                    //in reality, part of the year is unprotected).
+                    if (t % 2 == 0) { potential_young_decomp_rate = 1; }
                 }
                 if (NA_in_map(dtm) > 0 | NA_in_map(soildepth_m) > 0)
                 {
@@ -13177,7 +13487,6 @@ namespace LORICA4
             catch { Debug.WriteLine(" Problem occurred in translocation calculation"); }
         }
 
-
         void soil_silt_translocation()
         {
             //in Spitsbergen, it is mostly silt (with attendant clay) that gets translocated in the profile. Clay is not modelled in itself
@@ -13273,7 +13582,6 @@ namespace LORICA4
                 MessageBox.Show("error in decalcification");
             }
         }
-
 
         void lessivage_calibration(int row, int col, int cal)
         {
@@ -14093,7 +14401,7 @@ namespace LORICA4
                     }
                 }  // end for col
             }  //end for row
-            Debug.WriteLine(" prepared water. Ready to route for erosion and deposition");
+            //Debug.WriteLine(" prepared water. Ready to route for erosion and deposition");
             all_grids = (nr) * (nc);
             memberdepressionnotconsidered = 0;
             int runner = 0;
@@ -14477,7 +14785,7 @@ namespace LORICA4
                             }//end for j
                         }//end for i
                         if (NA_in_soil(row, col) == true) { Debug.WriteLine("NA found after eroding " + row + " " + col); }
-                        if (row == 24 && col == 81) { Debug.WriteLine("passed"); }
+                        //if (row == 24 && col == 81) { Debug.WriteLine("passed"); }
                     } // end if not in a lake or a lake outlet (all other lake cells have been considered before
                 } //end if nodata
             }//end for index
@@ -16803,7 +17111,7 @@ namespace LORICA4
         {
             try
             {
-                Debug.WriteLine("Started calculating TPI");
+                //Debug.WriteLine("Started calculating TPI");
                 // check if window size is an uneven number, so the window has a center cell
                 if (windowsize % 2 == 0) { MessageBox.Show("window size for TPI calculations should be an uneven number"); }
 
@@ -16837,7 +17145,7 @@ namespace LORICA4
                         
                     }
                 }
-                Debug.WriteLine("Finished calculating TPI");
+                //Debug.WriteLine("Finished calculating TPI");
             }
             catch
             {
@@ -17015,11 +17323,6 @@ namespace LORICA4
                 }
             }
         }
-
-
-
-
-
 
 
         void calc_hillshade() // 
@@ -18208,47 +18511,60 @@ Example: rainfall.asc can look like:
 
         #region calibration code
 
-        private void calib_calculate_maxruns()
+        private void calib_calculate_maxruns( int calibparacount )
         {
             //this code calculates the total number of runs needed when calibrating
-            //to do that, first USER specifies how many parameters will be varied, here:
-            int user_specified_number_of_calib_parameters = 4;
-
-            //now we can calculate the number of runs needed:
             string calibration_ratio_string = calibration_ratios_textbox.Text;
             string[] ratiowords = calibration_ratio_string.Split(';');
             int ratio;
             for (ratio = 0; ratio < ratiowords.Length; ratio++)
-                try { calib_ratios[ratio] = Convert.ToDouble(ratiowords[ratio]); }
-                catch { input_data_error = true; MessageBox.Show("Calibration ratio input error"); }
+                for (int par = 0; par < calibparacount; par++) {
+                    try {
+                        calib_ratios[par, ratio] = Convert.ToDouble(ratiowords[ratio]);
+                    }
+                    catch { input_data_error = true; MessageBox.Show("Calibration ratio input error"); }
+                }
             try { calib_levels = Convert.ToInt32(calibration_levels_textbox.Text); }
             catch { input_data_error = true; MessageBox.Show("Calibration iterations must be an integer"); }
-            maxruns = calib_levels * Convert.ToInt32(Math.Pow(ratiowords.Length,user_specified_number_of_calib_parameters));
+            maxruns = calib_levels * Convert.ToInt32(Math.Pow(ratiowords.Length,calibparacount));
             Debug.WriteLine(" the number of runs for calibration will be " + maxruns);
         }
 
-        private void calib_zoom_in(double reduction_factor) {
-            //this code recudes the ratios by which we multiply central parameter values, 
-            //we use reduction_factor, which must be > 1 and ideally < 2
-            int ratio;
-            for (ratio = 0; ratio < calib_ratios.Length; ratio++)
+        private void calib_shift_and_zoom(int para_number, double zoom_factor, double orig_par_value) {
+            //this code iinds out whether the best parameter value was on the edge or inside the range explored. Then shifts and zooms out or in , depending
+            try
             {
-                calib_ratios[ratio] = (1-calib_ratios[ratio]) / reduction_factor; 
+                Debug.WriteLine(" para number " + para_number);
+                Debug.WriteLine(" best_parameter value " + best_parameters[para_number]);
+                double mid_ratio = 0;
+                if (calib_ratios.GetLength(1) % 2 == 0) { mid_ratio = (calib_ratios[para_number, Convert.ToInt32(calib_ratios.GetLength(1) / 2)-1] + calib_ratios[para_number, Convert.ToInt32((calib_ratios.GetLength(1) / 2) )]) / 2; }
+                else { mid_ratio = calib_ratios[para_number, Convert.ToInt32(calib_ratios.GetLength(1) / 2 - 0.5)]; }
+                Debug.WriteLine("mid ratio is " + mid_ratio);
+                Double best_ratio = best_parameters[para_number] / orig_par_value;
+                Debug.WriteLine("best ratio is " + best_ratio);
+                if (best_parameters[para_number] == calib_ratios[para_number, 0] * orig_par_value | best_parameters[para_number] == calib_ratios[para_number, calib_ratios.GetLength(1) - 1] * orig_par_value)
+                {
+                    //the best parameter ratio (and thus value) was on the edge of the range. We must shift our range sideways (we keep the same ratio between upper and lower ratio - are you still with me?)
+                    Debug.WriteLine(" currentpara value was on edge of range");
+                    
+                    for (int ratio = 0; ratio < calib_ratios.GetLength(1); ratio++)
+                    {
+                        Debug.WriteLine(" setting ratio " + calib_ratios[para_number, ratio] + " to " + calib_ratios[para_number, ratio] * (best_ratio / mid_ratio));
+                        calib_ratios[para_number, ratio] = calib_ratios[para_number, ratio] * (best_ratio / mid_ratio);
+                    }
+                }
+                else
+                {
+                    //the best parameter ratio (and thus value) NOT on the edge of the range. We must shift to the best observed value and then zoom IN
+                    Debug.WriteLine(" currentpara value was NOT on edge of range");
+                    for (int ratio = 0; ratio < calib_ratios.GetLength(1); ratio++)
+                    {
+                        Debug.WriteLine(" setting ratio " + calib_ratios[para_number, ratio] + " to " + ((best_ratio - calib_ratios[para_number, ratio]) / zoom_factor));
+                        calib_ratios[para_number, ratio] += (best_ratio - calib_ratios[para_number, ratio]) / zoom_factor;
+                    }
+                }
             }
-        }
-
-        private void calib_zoom_out(double reduction_factor) {
-        //this code increases the fractions by which we multiply central parameter values
-        //we re-use reduction_factor, which must be > 1 and ideally < 2
-            int ratio;
-            for (ratio = 0; ratio < calib_ratios.Length; ratio++)
-            {
-                calib_ratios[ratio] = (1 - calib_ratios[ratio]) * reduction_factor;
-            }
-        }
-
-        private void calib_shift() {
-        //this code changes the central parameter values for parameters where that is needed
+            catch { Debug.WriteLine(" problem adapting parameters and ratios "); }
         }
 
         private void calib_prepare_report()
@@ -18260,39 +18576,74 @@ Example: rainfall.asc can look like:
             {
                 try
                 {
-                    sw.WriteLine("run objective_function_value ");
-                    sw.WriteLine("Lorica output content");
+                    sw.Write("run objective_function_value ");
+                    //USER INPUT NEEDED IN FOLLOWING LINE: ENTER THE CALIBRATION PARAMETER NAMES 
+                    //THEY WILL BE HEADERS IN THE CALIBRATION REPORT
+                    sw.WriteLine(" erodibility_K conv_fac");
                 }
-                catch { Debug.WriteLine(" issue with writing the header of the calibartion log file"); }
+                catch { Debug.WriteLine(" issue with writing the header of the calibration log file"); }
             }
+            Debug.WriteLine(" calib tst - calib_prepare_rep - added first line to file");
         }
 
         private void calib_update_report(double objective_fnct_result) {
-        //this code updates a calibration report
-        //it writes parameters and objective function outcomes to disk
-
+            //this code updates a calibration report
+            //it writes parameters and objective function outcomes to disk
+            string FILENAME = workdir + "\\calibration.log";
+            using (StreamWriter sw = File.AppendText(FILENAME))
+            {
+                try
+                {
+                    //USER INPUT NEEDED IN FOLLOWING LINE: ENTER THE CALIBRATION PARAMETERS 
+                    sw.WriteLine(run_number + " " + objective_fnct_result + " " + advection_erodibility + " " + conv_fac );
+                }
+                catch { Debug.WriteLine(" issue with writing a line in the calibration log file"); }
+            }
+            Debug.WriteLine(" calib tst - calib_update_rep - added line to file");
         }
         
         private void calib_finish_report()
         {
-        //this code closes a calibration report
-        //it writes the parameters for the best run to disk
-
-        }
-
-        private bool calib_best_on_edge() {
-        //this code assesses whether the best objective function value lies on an edge of the parameter range for any parameter.
-            
-            return false;
+            //this code closes a calibration report
+            //it writes the parameters for the best run to disk
+            //CALIB_USER : Change the number of parameters referenced (now two)
+            try
+            {
+                string FILENAME = workdir + "\\calibration.log";
+                using (StreamWriter sw = File.AppendText(FILENAME))
+                {
+                    sw.WriteLine(best_run + " " + best_error + " " + best_parameters[0] + " " + best_parameters[1]);
+                    Debug.WriteLine(" best run was " + best_run + " with error " + best_error + "m3");
+                }
+                Debug.WriteLine(" calib tst - calib_finish_rep - wrote final line and closed file");
+            }
+            catch
+            {
+                Debug.WriteLine(" calib tst - calib_finish_rep - FAILED to write file");
+            }
         }
 
         private double calib_objective_function()
         {
             //this code calculates the value of the objective function during calibration and is user-specified. 
             //calibration looks to minimize the value of the objective function by varying parameter values
-
-            //example:
-            return 4;
+            //CALIB_USER
+            //example for Luxembourg: we want to simulate the correct amount of erosion, over the entire slope
+            //Xia, number needs to be adapted
+            double simulated_ero_m3 = 0;
+            double known_ero_m3 = 40;
+            for (row = 0; row < nr; row++)
+            {
+                for (col = 0; col < nc; col++)
+                {
+                    if (dtm[row, col] != -9999)
+                    {
+                        simulated_ero_m3 -= (dz_ero[row, col] - dz_sed[row, col]) *dx*dx;
+                    }
+                }
+            }
+            Debug.WriteLine(" calib tst - calib_objective_function - error is " + Math.Abs(known_ero_m3 - simulated_ero_m3) + "m3");
+            return Math.Abs(known_ero_m3 - simulated_ero_m3);
         }
 
         private void calib_update_best_paras()
@@ -18301,8 +18652,10 @@ Example: rainfall.asc can look like:
             //USERS have to update code here to reflect the parameters they actually vary
             Debug.WriteLine(" updating parameter set for best scored run");
             // add/change lines below
-            
-            
+            best_parameters[0] = advection_erodibility;
+            best_parameters[1] = conv_fac;
+            Debug.WriteLine(" best erodib " + best_parameters[0]);
+            Debug.WriteLine(" best conv_fac " + best_parameters[1]);
         }
 
         #endregion
@@ -18406,14 +18759,42 @@ Example: rainfall.asc can look like:
                 //GENERAL INPUTS
                 //Entry point for consecutive runs for sensitivity analyses or calibration 
                 maxruns = 1;
-                if (Calibration_button.Checked == true ) { calib_calculate_maxruns(); calib_prepare_report(); }
+                int currentlevel = 0;
+
+                if (Calibration_button.Checked == true )
+                {
+                    int runs_per_level = 0;
+                    //CALIB_USER INPUT NEEDED NEXT LINE IN THE CODE :
+                    user_specified_number_of_calibration_parameters = 2;
+                    best_error = 99999999999; //or any other absurdly high number
+                    best_parameters = new double[user_specified_number_of_calibration_parameters];
+                    user_specified_number_of_ratios = calibration_ratios_textbox.Text.Split(';').Length;
+                    runs_per_level = Convert.ToInt32(Math.Pow(user_specified_number_of_ratios, user_specified_number_of_calibration_parameters));
+                    calib_ratios = new double[user_specified_number_of_calibration_parameters, user_specified_number_of_ratios];
+                    original_ratios = new double[user_specified_number_of_ratios];
+                    for (int rat = 0; rat < user_specified_number_of_ratios; rat++)
+                    {
+                        try
+                        {
+                            original_ratios[rat] = Convert.ToDouble(calibration_ratios_textbox.Text.Split(';')[rat]);
+                            for (int par = 0; par < user_specified_number_of_calibration_parameters; par++)
+                            {
+                                calib_ratios[par, rat] = Convert.ToDouble(calibration_ratios_textbox.Text.Split(';')[rat]); 
+                            }
+                        }
+                        catch { Debug.WriteLine(" problem setting original parameter ratios for calibration "); }
+                    }
+                    calib_calculate_maxruns(user_specified_number_of_calibration_parameters);
+                    Debug.WriteLine( maxruns);
+                    calib_prepare_report();
+                    //CALIB_USER: set the number of parameters and their initial value
+                    
+                }
                 if (Sensitivity_button.Checked == true) { //dev needed
                 }
                 for (run_number = 0; run_number < maxruns; run_number++)
                 {
                     Debug.WriteLine(" maxruns is " + maxruns);
-                    // run_number can be used to change par values and other stuff between runs     
-                    // double[] series_of_fractions = new double[8] { 0.25, 0.5, 0.75, 0.9, 1.1, 1.33, 2, 4 };
 
                     try { save_interval2 = System.Convert.ToInt32(googAnimationSaveInterval.Text); }
                     catch { input_data_error = true; MessageBox.Show("value for google save interval is not valid"); }
@@ -18641,15 +19022,10 @@ Example: rainfall.asc can look like:
                         }
                     }
 
-
-                    //here, we multiple the original 
-
-
                     try
                     {
                         filename = dtmfilename;             //for directory input
-                        dtm_file(filename);                 // from dtm_file(), almost? all memory for the model is claimed
-                                                            // Debug.WriteLine(" initialised dtm ");
+                        dtm_file(filename);                 // from dtm_file(), almost all memory for the model is claimed
                     }
                     catch { Debug.WriteLine(" failed to initialise dtm "); }
 
@@ -18658,7 +19034,7 @@ Example: rainfall.asc can look like:
                         try
                         {
 
-                            Debug.WriteLine("reading general values");
+                            //Debug.WriteLine("reading general values");
                             if (check_space_soildepth.Checked != true)
                             {
                                 try { soildepth_value = double.Parse(soildepth_constant_value_box.Text); }
@@ -18697,6 +19073,20 @@ Example: rainfall.asc can look like:
                         // Debug.WriteLine("initialising non-general inputs");
                         try { initialise_once(); } // reading input files
                         catch { MessageBox.Show("there was a problem reading input files "); input_data_error = true; }
+
+
+                        //CALIB_USER: multiply parameter values with current ratio
+                        //Note the correspondence between the formulas. Change only 1 value for additional parameters!
+                        if(Calibration_button.Checked == true){  
+                            //Debug.WriteLine("erodib " + advection_erodibility + " conv fac " + conv_fac);
+                            int rat_number = Convert.ToInt32(Math.Floor(run_number / Math.Pow(user_specified_number_of_ratios, 0)) % user_specified_number_of_ratios);
+                            advection_erodibility *= calib_ratios[0, rat_number];
+                            Debug.WriteLine("First ratio number: " + rat_number);
+                            rat_number = Convert.ToInt32(Math.Floor(run_number / Math.Pow(user_specified_number_of_ratios, 1)) % user_specified_number_of_ratios);
+                            conv_fac *= calib_ratios[1, rat_number];
+                            Debug.WriteLine("Second ratio number: " + rat_number);
+                            Debug.WriteLine("erodib " + advection_erodibility + " conv fac " + conv_fac);
+                        }
 
                         timeseries_matrix = new double[System.Convert.ToInt32(end_time), number_of_outputs];
                         if (input_data_error == false)
@@ -18751,8 +19141,6 @@ Example: rainfall.asc can look like:
                                     }
                                 }
                             }
-
-                            //displaysoil(30, 30);
                         }
                     }
                     if (input_data_error == true)
@@ -18766,42 +19154,35 @@ Example: rainfall.asc can look like:
                     if (Calibration_button.Checked == true )
                     {
                         //calculate how good this run was:
-                        double current_score = calib_objective_function();
+                        double current_error = calib_objective_function();
                         //store that information along with the parameter values used to achieve it:
-                        calib_update_report(current_score);
-                        if (current_score > best_score) { best_score = current_score; calib_update_best_paras(); }
+                        calib_update_report(current_error);
+                        if (current_error < best_error) { best_error = current_error; calib_update_best_paras(); best_run = run_number; }
                         //and check whether one 'level' of calibration has finished. If so, we have to change parameter values
-                        Debug.WriteLine(run_number + " " + user_specified_number_of_calibration_parameters + " " + calibration_ratios_textbox.Text.Split(';').Length);
-                        if (run_number % (user_specified_number_of_calibration_parameters * calibration_ratios_textbox.Text.Split(';').Length - 1) == 0) {
-                            //one level of calibration has finished. If it was the last level, we should now make our final calib report
+                        Debug.WriteLine("run " + run_number + " number paras " + user_specified_number_of_calibration_parameters + " number ratios " + calibration_ratios_textbox.Text.Split(';').Length);
+                        if ((run_number+1) % Convert.ToInt32(Math.Pow(calibration_ratios_textbox.Text.Split(';').Length, user_specified_number_of_calibration_parameters )) == 0) {
+
+                            //a level of calibration has finished
+                            
+                            //If it was the last level, we are now done
+                            currentlevel++;
                             Debug.WriteLine(" successfully finished a level of calibration runs");
-                            if (run_number == maxruns - 1) {
-                                //make final calib report
+                            if (run_number == maxruns - 1)
+                            {
                                 Debug.WriteLine(" successfully finished last level of calibration runs");
                                 calib_finish_report();
                             }
                             else
                             {
-                                Debug.WriteLine(" setting new central parameter values");
-                                calib_shift();
-                                //check whether the minimum objective function is on the edge of parameter space
-                                if (calib_best_on_edge() == true) {
-                                    //we need to zoom out and shift center
-                                    Debug.WriteLine(" increasing parameter range");
-                                    calib_zoom_out(1.5);
-                                } 
-                                else
-                                {
-                                    //we need to zoom in and shift center
-                                    Debug.WriteLine(" decreasing parameter range");
-                                    calib_zoom_in(1.5);
-                                }
-
+                                Debug.WriteLine(" setting new ratios ");
+                                //CALIB_USER INPUT NEEDED HERE IN CODE
+                                //check whether the best run was on the edge of parameter space or inside, shift to that place and zoom out or in
+                                calib_shift_and_zoom(0, double.Parse(calibration_ratio_reduction_parameter_textbox.Text), double.Parse(parameter_K_textbox.Text) );
+                                calib_shift_and_zoom(1, double.Parse(calibration_ratio_reduction_parameter_textbox.Text), double.Parse(parameter_conv_textbox.Text) );
                             }
-                        
                         } else
                         {
-
+                            //nothing. Parameter values are adapted with the corresponding ratios to continue calibration above.
                         }
                     }
 
@@ -18811,7 +19192,7 @@ Example: rainfall.asc can look like:
             } // end try
             catch
             {
-                Debug.WriteLine("Error in accessing files from directory " + this.dtm_input_filename_textbox.Text);
+                Debug.WriteLine("Error in accessing file " + this.dtm_input_filename_textbox.Text);
             }
 
         }  //end main
@@ -18920,7 +19301,7 @@ Example: rainfall.asc can look like:
                 }
                 else
                 {
-                    Debug.WriteLine("calculating water erosion");
+                    //Debug.WriteLine("calculating water erosion");
                     findsinks();
                     searchdepressions();
                     define_fillheight_new();
@@ -18929,7 +19310,7 @@ Example: rainfall.asc can look like:
                     //Debug.WriteLine("Overland flow in t " + t+" with a flow of "+Math.Round(rain_value_m-infil_value_m-evap_value_m,4)+" m");
                     if (NA_anywhere_in_soil() == true) { Debug.WriteLine("NA found after erosed"); }
                     if (crashed) { Debug.WriteLine("crashed while calculating water erosion"); }
-                    else { Debug.WriteLine("successfully finished water erosion calculation"); }
+                    //else { Debug.WriteLine("successfully finished water erosion calculation"); }
 
                 }
             }
@@ -19130,9 +19511,9 @@ Example: rainfall.asc can look like:
                 if (t == end_time - 1)
                 {
 
-                    Debug.WriteLine("Time balance. Geomorphic processes: {0} min, pedogenic processes: {1} min, hydrologic processes: {2} min, ponding {3} min", geo_t, pedo_t, hydro_t, ponding_t);
+                    //Debug.WriteLine("Time balance. Geomorphic processes: {0} min, pedogenic processes: {1} min, hydrologic processes: {2} min, ponding {3} min", geo_t, pedo_t, hydro_t, ponding_t);
                 }
-                Debug.WriteLine("Attempting to write outputs");
+                //Debug.WriteLine("Attempting to write outputs");
 
                 // displaysoil(31, 12);
                 // Debug.WriteLine("Total catchment mass = " + total_catchment_mass());
@@ -19237,7 +19618,7 @@ Example: rainfall.asc can look like:
 
                 try
                 {
-                    Debug.WriteLine("writing all soils");
+                    //Debug.WriteLine("writing all soils");
                     writeallsoils();
                 }
                 catch
@@ -19619,9 +20000,7 @@ Example: rainfall.asc can look like:
             if (sorting_error == 1)
             {
                 Debug.WriteLine(" Sorting error in comb_sort ");
-            }
-            else
-            {
+            } else {
                 //Debug.WriteLine(" Sorting test successful ");
             }
         }
@@ -19650,8 +20029,6 @@ Example: rainfall.asc can look like:
         {
 
         }
-
-
 
         private void parameter_conv_textbox_TextChanged(object sender, EventArgs e)
         {
