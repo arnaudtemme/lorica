@@ -775,6 +775,11 @@ namespace LORICA4
                 total_sed_prod_up, total_sed_prod_mid, total_sed_prod_low,
                 total_sed_dep_up, total_sed_dep_mid, total_sed_dep_low;  // counters for logging and reporting through time
 
+        private void label10_Click(object sender, EventArgs e)
+        {
+
+        }
+
         private void button4_Click(object sender, EventArgs e)
         {
             try{ calculate_terrain_derivatives(); MessageBox.Show("terrain derivatives calculation succeeded"); }
@@ -4027,6 +4032,7 @@ namespace LORICA4
             this.label10.Size = new System.Drawing.Size(106, 13);
             this.label10.TabIndex = 9;
             this.label10.Text = "n (exponent of slope)";
+            this.label10.Click += new System.EventHandler(this.label10_Click);
             // 
             // label9
             // 

@@ -1,0 +1,24 @@
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA development.csprojAssemblyReference.cache
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA4.About_LORICA.resources
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA4.Landuse_determinator.resources
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA4.Mother_form.resources
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA4.Output_profile.resources
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA4.Output_timeseries.resources
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA4.dynamicPlot.resources
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA4.Properties.Resources.resources
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA4.Soil_specifier.resources
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\Smallwisdom.Windows.Forms.ZoomPanImageBox.resources
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA development.csproj.GenerateResource.cache
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA development.csproj.CoreCompileInputs.cache
+C:\Users\Marijn\sciebo\Research\GIT\lorica\bin\Debug\LORICA.exe.manifest
+C:\Users\Marijn\sciebo\Research\GIT\lorica\bin\Debug\LORICA.application
+C:\Users\Marijn\sciebo\Research\GIT\lorica\bin\Debug\LORICA.exe
+C:\Users\Marijn\sciebo\Research\GIT\lorica\bin\Debug\LORICA.pdb
+C:\Users\Marijn\sciebo\Research\GIT\lorica\bin\Debug\MathNet.Numerics.dll
+C:\Users\Marijn\sciebo\Research\GIT\lorica\bin\Debug\MathNet.Numerics.pdb
+C:\Users\Marijn\sciebo\Research\GIT\lorica\bin\Debug\MathNet.Numerics.xml
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA.exe.manifest
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA.application
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA development.csproj.CopyComplete
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA.exe
+C:\Users\Marijn\sciebo\Research\GIT\lorica\obj\Debug\LORICA.pdb
