@@ -443,7 +443,8 @@ namespace LORICA4
                     bulkdensity;            // : bulkdensity in kg/m3 (over the voxel = layer * thickness)
 
 
-        double[,,] sediment_in_transport_kg;         // sediment mass in kg in transport per texture class
+        double[,,] sediment_in_transport_kg,         // sediment mass in kg in transport per texture class
+                    litter_kg ;                     // Litter contents (Luxembourg case study)
 
         double[,]   // double matrices - these are huge memory-eaters and should be minimized 
                     // they only get that memory later, and only when needed
@@ -513,7 +514,9 @@ namespace LORICA4
                     profile_wat3,
                     lessivage_errors, // for calibration of lessivage
                     tpi,            //topographic position index
-                    hornbeam_cover_fraction;   //hornbeam fraction             
+                    hornbeam_cover_fraction;   //hornbeam fraction 
+                    
+
         int[,]  // integer matrices
                     status_map,         //geeft aan of een cel een sink, een zadel, een flat of een top is
                     depression,         //geeft aan of een cel bij een meer hoort, en welk meer
@@ -528,7 +531,9 @@ namespace LORICA4
                     tillfields,         //fields for tillage 
                     treefall_count,     // count number of tree falls
                     vegetation_type;
-        // int[, ,]    OSL_age;            // keeps track of the last moment of surfacing
+        int[ ,]    OSL_age;            // keeps track of the last moment of surfacing: dim1: [nr * nc * nlayers * ngrains]; dim2: [5] row, col, layer, depo age, stab age
+                                        // Memory restrictions: length of each dimension cannot exceed 2^31 - 1 units (~2.15*10^9). 
+                                        // Limits on memory size depends on properties of system and settings for simulations
 
 
         int[,]
@@ -550,6 +555,7 @@ namespace LORICA4
         const double epsilon = 0.000001;
         const double root = 7.07;
         int max_soil_layers = 25;
+        int ngrains = 100; // For OSL calculations
 
         // for constant layer thicknesses
         double dz_standard = 0.1;
@@ -5868,7 +5874,7 @@ namespace LORICA4
             // status grids
             if (this.Ik_ben_Marijn.Checked == true) { original_dtm = new double[nr, nc]; }
             dtm = new double[nr, nc];
-            // OSL_age = new int[nr, nc,max_soil_layers];
+            OSL_age = new int[nr * nc * max_soil_layers * ngrains, 5]; 
             soildepth_m = new double[nr, nc];
             dtmchange = new double[nr, nc];
             dz_soil = new double[nr, nc];
@@ -5934,7 +5940,8 @@ namespace LORICA4
 
             if (version_lux_checkbox.Checked)
             { tpi = new double[nr, nc];
-                hornbeam_cover_fraction = new double[nr, nc];            
+                hornbeam_cover_fraction = new double[nr, nc]; 
+                litter_kg = new double [nr, nc, 2];
             }
 
             if (Solifluction_checkbox.Checked)
@@ -13184,6 +13191,44 @@ namespace LORICA4
 
         } // nieuwe code van Arnaud
 
+        void soil_litter_cycle()
+        {
+            // uses parameters from Carbon Cycle for now
+            try
+            {
+                double litter_input_kg;
+
+                 //this line keeps young (hornbeam) OM completely gone from the surface every second year (reflecting that,
+                //in reality, part of the year is unprotected). MvdM I added the else to rest the decomposition rate
+                if (t % 2 == 0) { potential_young_decomp_rate = 1; } else { potential_young_decomp_rate = Convert.ToDouble(carbon_y_decomp_rate_textbox.Text);}
+
+                calculate_TPI(7);
+                double a = -0.33;
+                double b = 28.33;
+                for (row = 0; row < nr; row++)
+                {
+                    for (col = 0; col < nc; col++)
+                    {
+                        //calculating hornbeam fraction
+                        hornbeam_cover_fraction[row,col] = 1-Math.Exp(a + b * tpi[row,col]) / (1 + Math.Exp(a + b * tpi[row, col]));
+
+                        
+                        litter_input_kg = potential_OM_input; // MvdM no changes in litter input due to soil thickness. 
+                        
+                        // All litter to litter layer matrix
+                        litter_kg[row, col, 0] += litter_input_kg * (hornbeam_cover_fraction[row,col]); // Hornbeam
+                        litter_kg[row, col, 1] += litter_input_kg * (1- hornbeam_cover_fraction[row, col]); // Beech
+
+                        // Decomposition
+                        litter_kg[row, col, 0] *= (1 - potential_young_decomp_rate); // Hornbeam
+                        litter_kg[row, col, 1] *= (1 - potential_old_decomp_rate); // Beech
+                    }
+                }
+            }
+            catch { Debug.WriteLine(" Crash in litter cycle "); }
+        }
+        
+        
         void soil_carbon_cycle()
         {
             try
@@ -13210,9 +13255,10 @@ namespace LORICA4
                         }
                     }
                     //this line keeps young (hornbeam) OM completely gone from the surface every second year (reflecting that,
-                    //in reality, part of the year is unprotected).
-                    if (t % 2 == 0) { potential_young_decomp_rate = 1; }
+                    //in reality, part of the year is unprotected). MvdM I added the else to rest the decomposition rate
+                    if (t % 2 == 0) { potential_young_decomp_rate = 1; } else { potential_young_decomp_rate = Convert.ToDouble(carbon_y_decomp_rate_textbox.Text);}
                 }
+                
                 if (NA_in_map(dtm) > 0 | NA_in_map(soildepth_m) > 0)
                 {
                     Debug.WriteLine("err_cc1");
@@ -14627,9 +14673,14 @@ namespace LORICA4
                                                             }
                                                             else
                                                             {  //for Luxemburg version, here we additially protect soil from erosion by its cover of 'bad' organic matter as litter (i.e. in top layer)
-                                                                double litter_fraction = (old_SOM_kg[row, col, 0] + young_SOM_kg[row, col, 0]) / total_layer_mass(row, col, 0);
+                                                                
+                                                                // MvdM litter fraction is determined by the total amount of litter as fraction of the mineral soil in the top layer. This might be changed, because mineral content is variable and indepent of litter quantity
+                                                                double litter_fraction = (litter_kg[row, col, 0]+litter_kg[row, col, 0]) / (litter_kg[row, col, 0]+litter_kg[row, col, 0] + total_layer_mass(row, col, 0));
+                                                                
+                                                                //double litter_fraction = (old_SOM_kg[row, col, 0] + young_SOM_kg[row, col, 0]) / total_layer_mass(row, col, 0);
                                                                 //LUX Xia you have to set this parameter here in the code. Value between 0-1.
                                                                 double litter_protection_constant = 0.5;
+
                                                                 mass_to_be_eroded = (transport_capacity_kg - total_sediment_in_transport_kg)
                                                                 * Math.Exp(-rock_protection_constant * rock_fraction)
                                                                 * Math.Exp(-bio_protection_constant * 0)
@@ -14704,7 +14755,11 @@ namespace LORICA4
                                                             //this does not cover: LMW SOM, peat or large woody debris
                                                             double clayerodedfraction_0 = clayeroded_0_kg / (clayeroded_0_kg + claypresent_0_kg);
                                                             double clayerodedfraction_1 = clayeroded_1_kg / (clayeroded_1_kg + claypresent_1_kg);
-                                                            if (Double.IsNaN(clayerodedfraction_0)) { clayerodedfraction_0 = 0; Debug.WriteLine(" this should not have happened - no OM erosion possible"); }
+                                                            if (Double.IsNaN(clayerodedfraction_0))
+                                                            { 
+                                                                clayerodedfraction_0 = 0; 
+                                                                Debug.WriteLine(" this should not have happened - no OM erosion possible"); 
+                                                            }
                                                             if (Double.IsNaN(clayerodedfraction_1)) { clayerodedfraction_1 = 0; }
                                                             //if (row == 62 && col == 78) { Debug.WriteLine(clayerodedfraction_0 + "  " + clayerodedfraction_1); displaysoil(row, col); }
                                                             old_SOM_in_transport_kg[row, col] += old_SOM_kg[row, col, 0] * clayerodedfraction_0 + old_SOM_kg[row, col, 1] * clayerodedfraction_1;
@@ -15488,6 +15543,7 @@ namespace LORICA4
                         double[] tilled_text = new double[5]; // includes soil 
                         double[] tilled_om = new double[2]; // includes OM
                         double[] alldepths = new double[completelayers]; // contains thicknesses of all layers
+                        double[] fraction_mixed = new double[completelayers+1];
 
                         // add material from complete layers
                         double mass_soil_before = total_soil_mass(row, col);
@@ -15495,6 +15551,7 @@ namespace LORICA4
                         {
                             completelayerdepth += layerthickness_m[row, col, lay];
                             alldepths[lay] = layerthickness_m[row, col, lay];
+                            fraction_mixed[lay] = 1;
 
                             for (int tex = 0; tex < 5; tex++)
                             {
@@ -15507,6 +15564,7 @@ namespace LORICA4
                         // Debug.WriteLine("till3");
                         // add material from partial layer and appoint mixed material, and give back material at the same time
                         double frac_ap = (plough_depth - completelayerdepth) / layerthickness_m[row, col, completelayers];
+                        fraction_mixed[completelayers] = frac_ap;
                         if (frac_ap > 1)
                         {
                             Debug.WriteLine("err_ti1");
@@ -15543,6 +15601,11 @@ namespace LORICA4
                             newdepth += layerthickness_m[row, col, lay];
                         }
                         newdepth += layerthickness_m[row, col, completelayers];
+
+                        
+
+
+
                         // Debug.WriteLine("till5");
                         // 2. Calculate redistribution of material
                         // 2.a First calculate slope_sum for multiple flow, and remember how much lower the !currently! lowest lower neighbour is
@@ -17866,7 +17929,7 @@ namespace LORICA4
             }
 
         }
-
+        
         void calc_write_fourier_transform(double[] timeseries_signal)
         {
             filter_timeseries(timeseries_signal, 9);
@@ -19474,7 +19537,14 @@ Example: rainfall.asc can look like:
             if (soil_carbon_active)
             {
                 // Debug.WriteLine("calculating carbon dynamics ");
-                soil_carbon_cycle();
+                if(version_lux_checkbox.Checked)
+                {
+                    soil_litter_cycle();
+                } else
+                {
+                    soil_carbon_cycle();
+                }
+                
             }
             if (NA_anywhere_in_soil() == true) { Debug.WriteLine("NA found after soil carbon"); }
             if (decalcification_checkbox.Checked)
@@ -19549,7 +19619,7 @@ Example: rainfall.asc can look like:
                         }
                     }
                     catch { MessageBox.Show("vegetation type has not been written"); }
-
+                    
 
 
                 }
@@ -19558,6 +19628,63 @@ Example: rainfall.asc can look like:
                 {
                     try
                     {
+                        // outputs for case study Luxembourg. Focus on different litter types
+                        // young labile OM is hornbeam, old stable OM is beech
+                        // Outputs:
+                        // SOM stocks entire profile: total, young, old (kg/m2)
+                        // top layer: total, old, young (-) 
+
+                        string[] litter_types = { "hornbeam", "beech", "total" };
+                        string[] litter_outputs = { "stocks_kgm2", "toplayer_frac" };
+
+                        foreach (string type in litter_types) // loop over different SOM types
+                        {
+                             // determine which SOM fraction should be considered
+                            bool h_bool = false; bool b_bool = false;
+                            if (type == "hornbeam") { h_bool = true; }
+                            if (type == "beech") { b_bool = true; }
+                            if (type == "total") { h_bool = true; b_bool = true; }
+
+                            foreach (string output in litter_outputs)
+                            {
+                                // determine which layers to consider and what to calculate
+                                int numberoflayers = 0;
+                                if (output == "stocks_kgm2") { numberoflayers = max_soil_layers; }
+                                if (output == "toplayer_frac") { numberoflayers = 1; }
+
+                                double[,] output_litter_map = new double[nr, nc] ;
+                                for (int row = 0; row < nr; row++)
+                                {
+                                    for (int col = 0; col < nc; col++)
+                                    {
+                                        double litterstock_kg = 0;
+                                        double mineralsoil_toplayer_kg = 0;
+                                        if (h_bool) { litterstock_kg += litter_kg[row, col, 0]; }
+                                        if (b_bool) { litterstock_kg += litter_kg[row, col, 1]; }
+                                        
+                                        if (output == "toplayer_frac")
+                                        {
+                                            for (int tex = 0; tex < 5; tex++)
+                                            {
+                                                mineralsoil_toplayer_kg += texture_kg[row, col, 0, tex];
+                                            }
+                                        }
+
+
+                                        if (output == "toplayer_frac") { litterstock_kg /= (mineralsoil_toplayer_kg + litterstock_kg); } // calculate to fraction
+                                        if (output == "stocks_kgm2") { litterstock_kg /= (dx * dx); } // calculate to kg/m2
+                                        output_litter_map[row, col] = litterstock_kg;
+                                    }
+                                }
+                                try { out_double(workdir + "\\" + run_number + "_" + t_out + "_out_litter_" + type + "_" + output + ".asc", output_litter_map); }
+                                catch { MessageBox.Show("litter output has not been written"); }
+                            }
+                        }
+                        try { out_double(workdir + "\\" + run_number + "_" + t_out + "_out_TPI.asc", tpi); }
+                        catch { MessageBox.Show("TPI output has not been written"); }
+
+                        /* CODE BLOCK BELOW WRITES OUT DIFFERENT ORGANIC MATTER MAPS. THIS IS NOT NECESSARY ANYMORE NOW LITTER IS STORED IN ITS OWN MATRIX
+                         * 
                         // outputs for case study Luxembourg. Focus on different organic matter types
                         // young labile OM is hornbeam, old stable OM is beech
                         // Outputs:
@@ -19613,10 +19740,12 @@ Example: rainfall.asc can look like:
                         }
                         try { out_double(workdir + "\\" + run_number + "_" + t_out + "_out_TPI.asc", tpi); }
                         catch { MessageBox.Show("TPI output has not been written"); }
+
+                        */
                     }
                     catch
                     {
-                        Debug.WriteLine("Error in writing SOM outputs for Luxembourg case study");
+                        Debug.WriteLine("Error in writing litterwater_ outputs for Luxembourg case study");
                     }
                 }
 
