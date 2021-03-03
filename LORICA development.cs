@@ -407,6 +407,7 @@ namespace LORICA4
         private Label label120;
         private CheckBox version_lux_checkbox;
         private Button button4;
+        private CheckBox OSL_checkbox;
         private System.Drawing.Bitmap m_objDrawingSurface;
         [System.Runtime.InteropServices.DllImport("gdi32.dll")]
         public static extern long BitBlt(IntPtr hdcDest, int nXDest, int nYDest, int nWidth,
@@ -434,7 +435,9 @@ namespace LORICA4
         Stopwatch stopwatch;
         TimeSpan geo_t, pedo_t, hydro_t, ponding_t;
         double[,,,]    //4D matrix for soil texture masses in different x,y and z for t texture classes (x,y,z,t)
-                    texture_kg;                //mass in kg (per voxel = layer * thickness)
+                    texture_kg,                //mass in kg (per voxel = layer * thickness)
+                    OSL_pdfs;               // : Keeps track of OSL density functions rather than individual particles
+
 
         double[,,]     //3D matrices for properties of soil layers in different x y (x,y,z)
                     layerthickness_m,         // : thickness in m 
@@ -443,8 +446,11 @@ namespace LORICA4
                     bulkdensity;            // : bulkdensity in kg/m3 (over the voxel = layer * thickness)
 
 
+
+
+
         double[,,] sediment_in_transport_kg,         // sediment mass in kg in transport per texture class
-                    litter_kg ;                     // Litter contents (Luxembourg case study)
+                    litter_kg;                     // Litter contents (Luxembourg case study)
 
         double[,]   // double matrices - these are huge memory-eaters and should be minimized 
                     // they only get that memory later, and only when needed
@@ -515,7 +521,7 @@ namespace LORICA4
                     lessivage_errors, // for calibration of lessivage
                     tpi,            //topographic position index
                     hornbeam_cover_fraction;   //hornbeam fraction 
-                    
+
 
         int[,]  // integer matrices
                     status_map,         //geeft aan of een cel een sink, een zadel, een flat of een top is
@@ -531,9 +537,10 @@ namespace LORICA4
                     tillfields,         //fields for tillage 
                     treefall_count,     // count number of tree falls
                     vegetation_type;
-        int[ ,]    OSL_age;            // keeps track of the last moment of surfacing: dim1: [nr * nc * nlayers * ngrains]; dim2: [5] row, col, layer, depo age, stab age
-                                        // Memory restrictions: length of each dimension cannot exceed 2^31 - 1 units (~2.15*10^9). 
-                                        // Limits on memory size depends on properties of system and settings for simulations
+        int[,] OSL_age;            // keeps track of the last moment of surfacing: dim1: [nr * nc * nlayers * ngrains]; dim2: [5] row, col, layer, stab age, depo age
+                                   // Memory restrictions: length of each dimension cannot exceed 2^31 - 1 units (~2.15*10^9). 
+                                   // Limits on memory size depends on properties of system and settings for simulations
+
 
 
         int[,]
@@ -555,7 +562,6 @@ namespace LORICA4
         const double epsilon = 0.000001;
         const double root = 7.07;
         int max_soil_layers = 25;
-        int ngrains = 100; // For OSL calculations
 
         // for constant layer thicknesses
         double dz_standard = 0.1;
@@ -682,7 +688,7 @@ namespace LORICA4
         double reduction_factor, best_error;
         //USER INPUT NEEDED: establish best versions of parameters varied in calibration:
         double[] best_parameters;
-        double[,] calib_ratios ;
+        double[,] calib_ratios;
         double[] original_ratios;
 
         private void rain_input_filename_textbox_TextChanged_1(object sender, EventArgs e)
@@ -781,6 +787,8 @@ namespace LORICA4
                 total_sed_prod_up, total_sed_prod_mid, total_sed_prod_low,
                 total_sed_dep_up, total_sed_dep_mid, total_sed_dep_low;  // counters for logging and reporting through time
 
+
+
         private void label10_Click(object sender, EventArgs e)
         {
 
@@ -788,7 +796,7 @@ namespace LORICA4
 
         private void button4_Click(object sender, EventArgs e)
         {
-            try{ calculate_terrain_derivatives(); MessageBox.Show("terrain derivatives calculation succeeded"); }
+            try { calculate_terrain_derivatives(); MessageBox.Show("terrain derivatives calculation succeeded"); }
             catch { MessageBox.Show("terrain derivatives calculation failed"); }
 
         }
@@ -1255,6 +1263,7 @@ namespace LORICA4
             this.saveintervalbox = new System.Windows.Forms.TextBox();
             this.label78 = new System.Windows.Forms.Label();
             this.Run = new System.Windows.Forms.TabPage();
+            this.OSL_checkbox = new System.Windows.Forms.CheckBox();
             this.button4 = new System.Windows.Forms.Button();
             this.version_lux_checkbox = new System.Windows.Forms.CheckBox();
             this.groupBox2 = new System.Windows.Forms.GroupBox();
@@ -3191,6 +3200,7 @@ namespace LORICA4
             // 
             // Run
             // 
+            this.Run.Controls.Add(this.OSL_checkbox);
             this.Run.Controls.Add(this.button4);
             this.Run.Controls.Add(this.version_lux_checkbox);
             this.Run.Controls.Add(this.groupBox2);
@@ -3203,6 +3213,16 @@ namespace LORICA4
             this.Run.TabIndex = 8;
             this.Run.Text = "Run";
             this.Run.UseVisualStyleBackColor = true;
+            // 
+            // OSL_checkbox
+            // 
+            this.OSL_checkbox.AutoSize = true;
+            this.OSL_checkbox.Location = new System.Drawing.Point(102, 123);
+            this.OSL_checkbox.Name = "OSL_checkbox";
+            this.OSL_checkbox.Size = new System.Drawing.Size(104, 17);
+            this.OSL_checkbox.TabIndex = 8;
+            this.OSL_checkbox.Text = "Track OSL ages";
+            this.OSL_checkbox.UseVisualStyleBackColor = true;
             // 
             // button4
             // 
@@ -4653,8 +4673,8 @@ namespace LORICA4
             // 
             // tabControl1
             // 
-            this.tabControl1.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
-            | System.Windows.Forms.AnchorStyles.Left) 
+            this.tabControl1.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
+            | System.Windows.Forms.AnchorStyles.Left)
             | System.Windows.Forms.AnchorStyles.Right)));
             this.tabControl1.Controls.Add(this.Processes);
             this.tabControl1.Controls.Add(this.tabPage1);
@@ -5874,7 +5894,6 @@ namespace LORICA4
             // status grids
             if (this.Ik_ben_Marijn.Checked == true) { original_dtm = new double[nr, nc]; }
             dtm = new double[nr, nc];
-            OSL_age = new int[nr * nc * max_soil_layers * ngrains, 5]; 
             soildepth_m = new double[nr, nc];
             dtmchange = new double[nr, nc];
             dz_soil = new double[nr, nc];
@@ -5902,6 +5921,34 @@ namespace LORICA4
                 young_SOM_kg = new double[nr, nc, max_soil_layers];         // : OM mass in kg (per voxel = layer * thickness)
                 old_SOM_kg = new double[nr, nc, max_soil_layers];
                 bulkdensity = new double[nr, nc, max_soil_layers];            // : bulkdensity in kg/m3 (over the voxel = layer * thickness)
+            }
+
+            if (OSL_checkbox.Checked)
+            {
+                int ngrains = 50;
+                int start_age = 1000000;
+                OSL_age = new int[nr * nc * max_soil_layers * ngrains, 5];
+                int count = 0;
+                for (int row = 0; row < nr; row++)
+                {
+                    for (int col = 0; col < nc; col++)
+                    {
+                        for (int lay = 0; lay < max_soil_layers; lay++)
+                        {
+                            for (int gr = 0; gr < ngrains; gr++)
+                            {
+                                OSL_age[count, 0] = row;
+                                OSL_age[count, 1] = col;
+                                OSL_age[count, 2] = lay;
+                                OSL_age[count, 3] = start_age;
+                                OSL_age[count, 4] = start_age;
+                                count += 1;
+                                if (count > (nr * nc * max_soil_layers * ngrains)) { Debugger.Break(); }
+                            }
+                        }
+                    }
+                }
+                // OSL_pdfs = new double[nr,nc,max_soil_layers,timesteps + 1];
             }
 
             if (Water_ero_checkbox.Checked)
@@ -5939,9 +5986,10 @@ namespace LORICA4
             }
 
             if (version_lux_checkbox.Checked)
-            { tpi = new double[nr, nc];
-                hornbeam_cover_fraction = new double[nr, nc]; 
-                litter_kg = new double [nr, nc, 2];
+            {
+                tpi = new double[nr, nc];
+                hornbeam_cover_fraction = new double[nr, nc];
+                litter_kg = new double[nr, nc, 2];
             }
 
             if (Solifluction_checkbox.Checked)
@@ -6262,7 +6310,7 @@ namespace LORICA4
             string input;
             int tttt = 0;
             int x, y, xcounter;
-            Debug.WriteLine(" Reading " + FILE_NAME + " from " + Directory.GetCurrentDirectory()); 
+            Debug.WriteLine(" Reading " + FILE_NAME + " from " + Directory.GetCurrentDirectory());
             if (!File.Exists(FILE_NAME))
             {
                 MessageBox.Show("No such data file " + FILE_NAME);
@@ -6538,6 +6586,25 @@ namespace LORICA4
             }
         }// end writesoil
 
+        void writeOSLages()
+        {
+            int layer;
+            string FILENAME = string.Format("{0}\\t{1}_out_OSL_ages.csv", workdir, t + 1);
+            using (StreamWriter sw = new StreamWriter(FILENAME))
+            {
+                sw.Write("row, col, layer, stabilization_age, deposition_age, layerthickness_m, layermass_kg, z_surface_m");
+                sw.Write("\r\n");
+                int t_out = t + 1;
+                for (int osl_i = 0; osl_i < OSL_age.GetLength(0); osl_i++)
+                {
+                    double laythick = layerthickness_m[OSL_age[osl_i, 0], OSL_age[osl_i, 1], OSL_age[osl_i, 2]];
+                    double laymass = total_layer_mass(OSL_age[osl_i, 0], OSL_age[osl_i, 1], OSL_age[osl_i, 2]);
+                    sw.Write(OSL_age[osl_i, 0] + "," + OSL_age[osl_i, 1] + "," + OSL_age[osl_i, 2] + "," + OSL_age[osl_i, 3] + "," + OSL_age[osl_i, 4] + "," + laythick + "," + laymass + "," + dtm[OSL_age[osl_i, 0], OSL_age[osl_i, 1]]);
+                    sw.Write("\r\n");
+                }
+                sw.Close();
+            }
+        }
         void writeallsoils()
         {
             int layer;
@@ -7039,7 +7106,8 @@ namespace LORICA4
 
                     try { xreader.ReadStartElement("CalibrationSensitivity"); }
                     catch { read_error = 2; }
-                    try { 
+                    try
+                    {
                         Calibration_button.Checked = XmlConvert.ToBoolean(xreader.ReadElementString("calibration_active_button"));
                         calibration_ratios_textbox.Text = xreader.ReadElementString("calibration_ratios_string");
                         calibration_levels_textbox.Text = xreader.ReadElementString("calibration_levels");
@@ -7478,7 +7546,7 @@ namespace LORICA4
                 xwriter.WriteStartElement("Run");
                 xwriter.WriteElementString("runs_radiobutton", XmlConvert.ToString(runs_checkbox.Checked));
                 xwriter.WriteElementString("number_runs", Number_runs_textbox.Text);
-                
+
                 xwriter.WriteStartElement("CalibrationSensitivity");
                 xwriter.WriteElementString("calibration_active_button", XmlConvert.ToString(Calibration_button.Checked));
                 xwriter.WriteElementString("calibration_ratios_string", calibration_ratios_textbox.Text);
@@ -7705,7 +7773,7 @@ namespace LORICA4
                 }
             }
         }
-        
+
         #endregion
 
         #region depression code
@@ -9185,7 +9253,8 @@ namespace LORICA4
                     slhcliff[row, col] = -9999;
                     sllcliff[row, col] = -9999;
                     ledgeheight[row, col] = -9999;
-                    if (dtm[row, col] != -9999 ){
+                    if (dtm[row, col] != -9999)
+                    {
                         ledges[row, col] = 0;
                         nedges[row, col] = 0;
                         hedges[row, col] = 0;
@@ -9211,7 +9280,7 @@ namespace LORICA4
                                                 {
                                                     for (jj = (-1); jj <= 1; jj++)
                                                     {
-                                                        if (!(i+ii == 0 && j+jj == 0) && row + i + ii >= 0 && col + j + jj >= 0 && row + i + ii < nr && col + j + jj < nc)
+                                                        if (!(i + ii == 0 && j + jj == 0) && row + i + ii >= 0 && col + j + jj >= 0 && row + i + ii < nr && col + j + jj < nc)
                                                         {
                                                             if (dtm[row + i + ii, col + j + jj] != -9999)
                                                             {
@@ -9241,7 +9310,8 @@ namespace LORICA4
                 {
                     row = row_index[runner]; col = col_index[runner];
                     //Debug.WriteLine("now at row " + row + " col " + col + " alt " + dtm[row, col]);
-                    if (ledgenames[row, col] != -9999) {
+                    if (ledgenames[row, col] != -9999)
+                    {
                         //we are on a ledge. Setting and resetting time
                         hhcliff[row, col] = ledgeheight[row, col];
                         slhcliff[row, col] = hhcliff[row, col] / dx;
@@ -9249,7 +9319,7 @@ namespace LORICA4
                     }
                     else
                     {
-                        double tempslhcliff = 0, steepest = 0, steepness, distance, steepdist = 0; 
+                        double tempslhcliff = 0, steepest = 0, steepness, distance, steepdist = 0;
                         for (i = (-1); i <= 1; i++)
                         {
                             for (j = (-1); j <= 1; j++)
@@ -9260,7 +9330,7 @@ namespace LORICA4
                                     {
                                         if (dtm[row + i, col + j] > dtm[row, col])
                                         {
-                                            if (i==0 || j == 0) { distance = dx; } else { distance = dx * 1.414; }
+                                            if (i == 0 || j == 0) { distance = dx; } else { distance = dx * 1.414; }
                                             steepness = (dtm[row + i, col + j] - dtm[row, col]) / distance;
                                             if (steepness > steepest)
                                             {
@@ -9297,7 +9367,7 @@ namespace LORICA4
                     }
                     else
                     {
-                        double tempsllcliff = 0, steepest = 0, steepness = 0, distance = 0, steepdist = 0 ;
+                        double tempsllcliff = 0, steepest = 0, steepness = 0, distance = 0, steepdist = 0;
                         for (i = (-1); i <= 1; i++)
                         {
                             for (j = (-1); j <= 1; j++)
@@ -10846,7 +10916,7 @@ namespace LORICA4
                     pond_y[row, col] += pond_d[row, col];
                 }
             }
-            // Debug.WriteLine("df6");
+            // Debug.WriteLine("df6");osl
         } // end dailyflow
 
         double Ks_wosten(double silt, double clay, double OM, double BD, int topsoil)
@@ -11116,6 +11186,7 @@ namespace LORICA4
                             }
                             old_SOM_kg[row2, col2, layert] = old_SOM_kg[row2, col2, layert + 1];
                             young_SOM_kg[row2, col2, layert] = young_SOM_kg[row2, col2, layert + 1];
+
                         }
                         for (i = 0; i < 5; i++)
                         {
@@ -11125,11 +11196,30 @@ namespace LORICA4
                         young_SOM_kg[row2, col2, max_soil_layers - 1] = 0;
                         layerthickness_m[row2, col2, max_soil_layers - 1] = 0;
 
+                        if (OSL_checkbox.Checked)
+                        {
+                            for (int osl_i = 0; osl_i < OSL_age.GetLength(0); osl_i++) // loop over all rows
+                            {
+                                if (OSL_age[osl_i, 0] == row2 & OSL_age[osl_i, 1] == col2)
+                                {
+                                    if (OSL_age[osl_i, 2] == lay2) { Debugger.Break(); } // should not happen. This layer has been eroded completely
+                                    if (OSL_age[osl_i, 2] > lay2)
+                                    {
+                                        OSL_age[osl_i, 2] -= 1;
+                                    } // reduce layer number by 1
+                                }
+                            }
+                        }
+
                         if (full_layer_shift == true) { lay2--; }
                         //Debug.WriteLine("-");
                         //displaysoil(row2, col2);
+
                     }
                 }
+
+
+
                 // Debug.WriteLine("rel3");
                 if (shift_layers == true)
                 {
@@ -12058,6 +12148,24 @@ namespace LORICA4
                     young_SOM_kg[rowwer, coller, layert] = young_SOM_kg[rowwer, coller, layert + 1];
                 }
 
+                if (OSL_checkbox.Checked)
+                {
+                    for (int osl_i = 0; osl_i < OSL_age.GetLength(0); osl_i++) // loop over all rows
+                    {
+                        if (OSL_age[osl_i, 0] == rowwer & OSL_age[osl_i, 1] == coller)
+                        {
+                            if (OSL_age[osl_i, 2] == lay2)
+                            {
+                                OSL_age[osl_i, 2] = lay1;
+                            } //combine layers
+                            if (OSL_age[osl_i, 2] > lay2)
+                            {
+                                OSL_age[osl_i, 2] -= 1;
+                            } // move all layers 1 up
+                        }
+                    }
+                }
+
                 //now set the last layer to sentinel value of -1
                 for (i = 0; i < 5; i++)
                 {
@@ -12330,7 +12438,8 @@ namespace LORICA4
         {
             try
             {
-                double max_layer_difference, current_difference, maximum_allowed_thickness;
+                double max_layer_difference, current_difference, maximum_allowed_thickness, old_mass_soil, new_soil_mass;
+                old_mass_soil = total_soil_mass(rowwer, coller);
                 //splitting will increase the number of layers. If this splits beyond the max number of layers, then combine the two most similar ones 
                 int laynum, combininglayer = -1;
                 // Debug.WriteLine("sl0");
@@ -12372,7 +12481,13 @@ namespace LORICA4
                         // displaysoil(rowwer, coller);
                         // Debugger.Break();
                     }
-                    if (combininglayer < lay1) { lay1++; } // mvdm changed from++ to --, because if layers above are combined, the target layer has moved up one spot
+                    if (combininglayer < lay1) { lay1++; } // mvdm Should this be changed from ++ to --? because if layers above are combined, the target layer has moved up one spot
+                }
+
+                if (Math.Abs(old_mass_soil - total_soil_mass(rowwer, coller)) > 0.000001)
+                {
+                    Debug.WriteLine("err_spl_1 {0}", total_soil_mass(rowwer, coller));
+                    Debugger.Break();
                 }
                 //Debug.WriteLine("sl2");
                 //Debug.WriteLine("total soil mass = " + total_soil_mass(rowwer, coller));
@@ -12389,47 +12504,75 @@ namespace LORICA4
                     // Debug.WriteLine("sl2b, ");
                     old_SOM_kg[rowwer, coller, laynum] = old_SOM_kg[rowwer, coller, laynum - 1];
                     young_SOM_kg[rowwer, coller, laynum] = young_SOM_kg[rowwer, coller, laynum - 1];
-                    // OSL_age[rowwer, coller, laynum] = OSL_age[rowwer, coller, laynum - 1];
                 }
+                //if (Math.Abs(old_mass_soil - total_soil_mass(rowwer, coller)) > 0.000001)
+                //{
+                //    Debug.WriteLine("err_spl_2 {0}", total_soil_mass(rowwer, coller));
+                //    // Debugger.Break();
+                //    // old_mass_soil = total_soil_mass(rowwer, coller);
+                //}
                 //Debug.WriteLine("sl3");
                 //Debug.WriteLine("total soil mass = " + total_soil_mass(rowwer, coller));
 
                 //Debug.WriteLine(" moved layers one down to make space for split layer ");
-                if ((lay1 + 1) == (max_soil_layers - 1))
+
+                // MvdM cleaned up the code below. I removed the if-esle statement for even splitting or uneven splitting and use div to split the layers. If even splitting, div = 0.5, if not, div gets recalculated
+                double div = 0.5;
+                if ((lay1 + 1) == (max_soil_layers - 1)) // if one of the splitting layers is the last layers, 
                 {
-                    double div = 0.1 / (layerthickness_m[row, col, lay1]); // aim to have the split layer at 0.1 m
-                    if (div > 1) { div = 1; }
-                    for (i = 0; i < 5; i++)
-                    {
-                        texture_kg[rowwer, coller, lay1 + 1, i] += texture_kg[rowwer, coller, lay1, i] * (1 - div); texture_kg[rowwer, coller, lay1, i] *= div;
-                        if (double.IsNaN(texture_kg[rowwer, coller, lay1, i]))
-                        {
-                            Debug.WriteLine("err_spl1");
-                        }
-                        if (double.IsNaN(texture_kg[rowwer, coller, lay1 + 1, i]))
-                        {
-                            Debug.WriteLine("err_spl2");
-                        }
-                    }
-                    old_SOM_kg[rowwer, coller, lay1 + 1] += old_SOM_kg[rowwer, coller, lay1] * (1 - div); old_SOM_kg[rowwer, coller, lay1] *= div;
-                    young_SOM_kg[rowwer, coller, lay1 + 1] += young_SOM_kg[rowwer, coller, lay1] * (1 - div); young_SOM_kg[rowwer, coller, lay1] *= div;
-                    //Debug.WriteLine(" successfully split layer ");
-                    //Debug.WriteLine("sl4");
-                    //Debug.WriteLine("total soil mass = " + total_soil_mass(rowwer, coller));
+                    div = 0.1 / (layerthickness_m[row, col, lay1]); // aim to have the split layer at ~0.1 m
                 }
-                else // even splitting
+                if (div > 1) { div = 1; }
+                for (i = 0; i < 5; i++)
                 {
-                    for (i = 0; i < 5; i++)
+                    texture_kg[rowwer, coller, lay1 + 1, i] = texture_kg[rowwer, coller, lay1, i] * (1 - div);
+                    texture_kg[rowwer, coller, lay1, i] *= div;
+                    if (double.IsNaN(texture_kg[rowwer, coller, lay1, i]))
                     {
-                        texture_kg[rowwer, coller, lay1 + 1, i] = texture_kg[rowwer, coller, lay1, i] / 2; texture_kg[rowwer, coller, lay1, i] /= 2;
+                        Debug.WriteLine("err_spl1");
                     }
-                    old_SOM_kg[rowwer, coller, lay1 + 1] = old_SOM_kg[rowwer, coller, lay1] / 2; old_SOM_kg[rowwer, coller, lay1] /= 2;
-                    young_SOM_kg[rowwer, coller, lay1 + 1] = young_SOM_kg[rowwer, coller, lay1] / 2; young_SOM_kg[rowwer, coller, lay1] /= 2;
-                    //Debug.WriteLine(" successfully split layer ");
-                    //Debug.WriteLine("sl4");
-                    //Debug.WriteLine("total soil mass = " + total_soil_mass(rowwer, coller));
+                    if (double.IsNaN(texture_kg[rowwer, coller, lay1 + 1, i]))
+                    {
+                        Debug.WriteLine("err_spl2");
+                    }
+                }
+                old_SOM_kg[rowwer, coller, lay1 + 1] += old_SOM_kg[rowwer, coller, lay1] * (1 - div);
+                old_SOM_kg[rowwer, coller, lay1] *= div;
+                young_SOM_kg[rowwer, coller, lay1 + 1] += young_SOM_kg[rowwer, coller, lay1] * (1 - div);
+                young_SOM_kg[rowwer, coller, lay1] *= div;
+                //Debug.WriteLine(" successfully split layer ");
+                //Debug.WriteLine("sl4");
+                //Debug.WriteLine("total soil mass = " + total_soil_mass(rowwer, coller));
+
+                if (Math.Abs(old_mass_soil - total_soil_mass(rowwer, coller)) > 0.000001)
+                {
+                    Debug.WriteLine("err_spl_3 {0}", total_soil_mass(rowwer, coller));
+                    Debugger.Break();
                 }
 
+                if (OSL_checkbox.Checked)
+                {
+                    int probRange = 10000;
+                    int splitting_P_int = Convert.ToInt32(Math.Round(div * probRange));
+
+                    for (int osl_i = 0; osl_i < OSL_age.GetLength(0); osl_i++) // loop over all rows
+                    {
+                        if (OSL_age[osl_i, 0] == rowwer & OSL_age[osl_i, 1] == coller)
+                        {
+                            if (OSL_age[osl_i, 2] > (lay1))
+                            {
+                                OSL_age[osl_i, 2] += 1;
+                            } // move layers down, create empty layer below lay1
+                            if (OSL_age[osl_i, 2] == (lay1))
+                            {
+                                if (OSL_age[osl_i, 2] == 0 & (randOslSplitLayers.Next(0, probRange) < splitting_P_int ? 1 : 0) == 1) // determine whether grain will be moved to new layer, with probability of div
+                                {
+                                    OSL_age[osl_i, 2] += 1;
+                                }
+                            }
+                        }
+                    }
+                }
             }
             catch
             {
@@ -12769,7 +12912,7 @@ namespace LORICA4
                 double mass_soil_before = 0, mass_soil_after = 0, mass_top_before = 0, mass_top_after = 0;
                 // if (findnegativetexture()) { Debugger.Break(); }
                 double lux_hornbeam_OM_litter_fraction = 0;
-                
+
                 double total_young_som_kg = 0, total_old_som_kg = 0;
 
 
@@ -13198,9 +13341,9 @@ namespace LORICA4
             {
                 double litter_input_kg;
 
-                 //this line keeps young (hornbeam) OM completely gone from the surface every second year (reflecting that,
+                //this line keeps young (hornbeam) OM completely gone from the surface every second year (reflecting that,
                 //in reality, part of the year is unprotected). MvdM I added the else to rest the decomposition rate
-                if (t % 2 == 0) { potential_young_decomp_rate = 1; } else { potential_young_decomp_rate = Convert.ToDouble(carbon_y_decomp_rate_textbox.Text);}
+                if (t % 2 == 0) { potential_young_decomp_rate = 1; } else { potential_young_decomp_rate = Convert.ToDouble(carbon_y_decomp_rate_textbox.Text); }
 
                 calculate_TPI(7);
                 double a = -0.33;
@@ -13210,14 +13353,14 @@ namespace LORICA4
                     for (col = 0; col < nc; col++)
                     {
                         //calculating hornbeam fraction
-                        hornbeam_cover_fraction[row,col] = 1-Math.Exp(a + b * tpi[row,col]) / (1 + Math.Exp(a + b * tpi[row, col]));
+                        hornbeam_cover_fraction[row, col] = 1 - Math.Exp(a + b * tpi[row, col]) / (1 + Math.Exp(a + b * tpi[row, col]));
 
-                        
+
                         litter_input_kg = potential_OM_input; // MvdM no changes in litter input due to soil thickness. 
-                        
+
                         // All litter to litter layer matrix
-                        litter_kg[row, col, 0] += litter_input_kg * (hornbeam_cover_fraction[row,col]); // Hornbeam
-                        litter_kg[row, col, 1] += litter_input_kg * (1- hornbeam_cover_fraction[row, col]); // Beech
+                        litter_kg[row, col, 0] += litter_input_kg * (hornbeam_cover_fraction[row, col]); // Hornbeam
+                        litter_kg[row, col, 1] += litter_input_kg * (1 - hornbeam_cover_fraction[row, col]); // Beech
 
                         // Decomposition
                         litter_kg[row, col, 0] *= (1 - potential_young_decomp_rate); // Hornbeam
@@ -13227,8 +13370,8 @@ namespace LORICA4
             }
             catch { Debug.WriteLine(" Crash in litter cycle "); }
         }
-        
-        
+
+
         void soil_carbon_cycle()
         {
             try
@@ -13242,7 +13385,8 @@ namespace LORICA4
                 double dz_dx, dz_dy, slope_local, dynamic_TWI;
                 int layer;
                 total_OM_input_kg = 0;
-                if (version_lux_checkbox.Checked) {
+                if (version_lux_checkbox.Checked)
+                {
                     calculate_TPI(7);
                     double a = -0.33;
                     double b = 28.33;
@@ -13251,14 +13395,14 @@ namespace LORICA4
                         for (col = 0; col < nc; col++)
                         {
                             //calculating hornbeam fraction
-                            hornbeam_cover_fraction[row,col] = 1-Math.Exp(a + b * tpi[row,col]) / (1 + Math.Exp(a + b * tpi[row, col]));
+                            hornbeam_cover_fraction[row, col] = 1 - Math.Exp(a + b * tpi[row, col]) / (1 + Math.Exp(a + b * tpi[row, col]));
                         }
                     }
                     //this line keeps young (hornbeam) OM completely gone from the surface every second year (reflecting that,
                     //in reality, part of the year is unprotected). MvdM I added the else to rest the decomposition rate
-                    if (t % 2 == 0) { potential_young_decomp_rate = 1; } else { potential_young_decomp_rate = Convert.ToDouble(carbon_y_decomp_rate_textbox.Text);}
+                    if (t % 2 == 0) { potential_young_decomp_rate = 1; } else { potential_young_decomp_rate = Convert.ToDouble(carbon_y_decomp_rate_textbox.Text); }
                 }
-                
+
                 if (NA_in_map(dtm) > 0 | NA_in_map(soildepth_m) > 0)
                 {
                     Debug.WriteLine("err_cc1");
@@ -13296,9 +13440,10 @@ namespace LORICA4
                                 total_OM_input_index = -1 / OM_input_depth_decay_constant * (Math.Exp(-OM_input_depth_decay_constant * (total_soil_thickness)) - 1);
                                 layer_OM_input_kg = (layer_OM_input_index / total_OM_input_index) * local_OM_input_kg;
 
-                                if (version_lux_checkbox.Checked) {
-                                    young_SOM_kg[row, col, layer] += layer_OM_input_kg * (hornbeam_cover_fraction[row,col]);
-                                    old_SOM_kg[row, col, layer] += layer_OM_input_kg * (1- hornbeam_cover_fraction[row, col]);
+                                if (version_lux_checkbox.Checked)
+                                {
+                                    young_SOM_kg[row, col, layer] += layer_OM_input_kg * (hornbeam_cover_fraction[row, col]);
+                                    old_SOM_kg[row, col, layer] += layer_OM_input_kg * (1 - hornbeam_cover_fraction[row, col]);
                                 }
                                 else
                                 {
@@ -13747,7 +13892,7 @@ namespace LORICA4
 
         bool NA_anywhere_in_soil()
         {
-        
+
             bool boolNA = false;
             try
             {
@@ -13755,7 +13900,7 @@ namespace LORICA4
                 {
                     for (int colNA = 0; colNA < nc; colNA++)
                     {
-                        if(NA_in_soil(rowNA, colNA) == true) { boolNA = true; }
+                        if (NA_in_soil(rowNA, colNA) == true) { boolNA = true; }
                     }
                 }
 
@@ -14632,7 +14777,7 @@ namespace LORICA4
                                                     organic_in_transport = fraction * (old_SOM_in_transport_kg[row, col] + young_SOM_in_transport_kg[row, col]);    //all in kg
                                                                                                                                                                     //so far, organic in transport does not count towards the transport capacity. We can have infinite amounts of it in transport
 
-                                                    transport_capacity_kg = advection_erodibility * (bulkdensity[row,col,0] * dx * dx) * (Math.Pow(flow_between_cells_m3_per_m, m) * Math.Pow(dh, n)); // in a departure from literature, the erosion threshold is only evaluated if erosion actually occurs
+                                                    transport_capacity_kg = advection_erodibility * (bulkdensity[row, col, 0] * dx * dx) * (Math.Pow(flow_between_cells_m3_per_m, m) * Math.Pow(dh, n)); // in a departure from literature, the erosion threshold is only evaluated if erosion actually occurs
                                                     if (transport_capacity_kg < 0)
                                                     {
                                                         transport_capacity_kg = 0;
@@ -14657,7 +14802,7 @@ namespace LORICA4
                                                     }
                                                     if (transport_capacity_kg > total_sediment_in_transport_kg)
                                                     {
-                                                        
+
                                                         //erosion
                                                         //in case of desired erosion, we first evaluate whether we exceed the erosion threshold
                                                         if ((transport_capacity_kg - total_sediment_in_transport_kg) > erosion_threshold_kg)
@@ -14673,10 +14818,10 @@ namespace LORICA4
                                                             }
                                                             else
                                                             {  //for Luxemburg version, here we additially protect soil from erosion by its cover of 'bad' organic matter as litter (i.e. in top layer)
-                                                                
+
                                                                 // MvdM litter fraction is determined by the total amount of litter as fraction of the mineral soil in the top layer. This might be changed, because mineral content is variable and indepent of litter quantity
-                                                                double litter_fraction = (litter_kg[row, col, 0]+litter_kg[row, col, 0]) / (litter_kg[row, col, 0]+litter_kg[row, col, 0] + total_layer_mass(row, col, 0));
-                                                                
+                                                                double litter_fraction = (litter_kg[row, col, 0] + litter_kg[row, col, 0]) / (litter_kg[row, col, 0] + litter_kg[row, col, 0] + total_layer_mass(row, col, 0));
+
                                                                 //double litter_fraction = (old_SOM_kg[row, col, 0] + young_SOM_kg[row, col, 0]) / total_layer_mass(row, col, 0);
                                                                 //LUX Xia you have to set this parameter here in the code. Value between 0-1.
                                                                 double litter_protection_constant = 0.5;
@@ -14756,9 +14901,9 @@ namespace LORICA4
                                                             double clayerodedfraction_0 = clayeroded_0_kg / (clayeroded_0_kg + claypresent_0_kg);
                                                             double clayerodedfraction_1 = clayeroded_1_kg / (clayeroded_1_kg + claypresent_1_kg);
                                                             if (Double.IsNaN(clayerodedfraction_0))
-                                                            { 
-                                                                clayerodedfraction_0 = 0; 
-                                                                Debug.WriteLine(" this should not have happened - no OM erosion possible"); 
+                                                            {
+                                                                clayerodedfraction_0 = 0;
+                                                                Debug.WriteLine(" this should not have happened - no OM erosion possible");
                                                             }
                                                             if (Double.IsNaN(clayerodedfraction_1)) { clayerodedfraction_1 = 0; }
                                                             //if (row == 62 && col == 78) { Debug.WriteLine(clayerodedfraction_0 + "  " + clayerodedfraction_1); displaysoil(row, col); }
@@ -14819,8 +14964,9 @@ namespace LORICA4
                                                             young_SOM_kg[row, col, 0] += young_SOM_in_transport_kg[row, col] * claydepfraction;
                                                             old_SOM_kg[row, col, 0] += old_SOM_in_transport_kg[row, col] * claydepfraction;
                                                             young_SOM_in_transport_kg[row, col] *= 1 - claydepfraction;
-                                                            old_SOM_in_transport_kg[row, col] *= 1 - claydepfraction;      
-                                                        } else  //so both of the clay numbers are zero. This could be for many reasons: there is no clay to erode - there is absolutely no ero   - among them
+                                                            old_SOM_in_transport_kg[row, col] *= 1 - claydepfraction;
+                                                        }
+                                                        else  //so both of the clay numbers are zero. This could be for many reasons: there is no clay to erode - there is absolutely no ero   - among them
                                                         {
                                                             //do nothing
                                                             //may be a problem if the landscape is simply clay-less: in that case, we do want to be able to erode OM.
@@ -15006,8 +15152,8 @@ namespace LORICA4
             if (timeseries.timeseries_total_rain_check.Checked)
             {
                 timeseries_matrix[t, timeseries_order[14]] = total_rain;
-            }       
-        
+            }
+
         }
 
         void ini_slope()   //Initialise LS parameters   
@@ -15495,7 +15641,60 @@ namespace LORICA4
                 Debug.WriteLine("err_sli1");
             }
 
-        } // end calc_slide()      
+        } // end calc_slide()  
+
+        Random randOslRowUpdate = new Random();
+        Random randOslColUpdate = new Random();
+        Random randOslLayUpdate = new Random();
+        Random randOslBleaching = new Random();
+        Random randOslSplitLayers = new Random();
+        Random randOslRandomLayer = new Random();
+        Random randOslLayerMixing = new Random();
+        Random randOslTillageTransport = new Random();
+
+        int returnRandomLayer(double[] probabilities)
+        {
+            for (int i = 1; i < probabilities.Length; i++) { probabilities[i] = probabilities[i] + probabilities[i - 1]; } // cumulate and
+            for (int i = 0; i < probabilities.Length; i++) { probabilities[i] /= probabilities[probabilities.Length - 1]; } // normalize probabilities
+
+            double prob = randOslRandomLayer.Next(0, 1000) / 1000.0; // determine probability
+
+            for (int i = 0; i < probabilities.Length; i++)
+            {
+                if (prob <= probabilities[i])
+                {
+                    return (i);
+                }
+            }
+            return (9999); // this cannot happen. Probability is always <= 1, which is the last value in [probabilities]
+        }
+
+        void update_and_bleach_OSL_ages(double bleaching_P)
+        {
+
+            int probRange = 10000;
+            int bleaching_P_int = Convert.ToInt32(Math.Round(bleaching_P * probRange));
+
+            for (int osl_i = 0; osl_i < OSL_age.GetLength(0); osl_i++) // loop over all rows
+            {
+                // Aging
+                for (int age_i = 3; age_i <= 4; age_i++) // For both stabilization ages [3] and deposition ages [4],
+                {
+                    if (OSL_age[osl_i, age_i] <= Int32.MaxValue) // if we don't exceed the maximum value for integers (for ~infinite ages),
+                    {
+                        OSL_age[osl_i, age_i] += 1; // we add a year to the age.
+                    }
+                }
+                // MdvM develop: bleaching probability in top layer as function of layer thickness (e.g. if only the top 3 mm gets bleached, the amount of grains that get bleached = 0.003/layerthickness)
+
+                // Bleaching
+                if (OSL_age[osl_i, 2] == 0 & (randOslBleaching.Next(0, probRange) < bleaching_P_int ? 1 : 0) == 1) // if in top layer and bleaching occurs
+                {
+                    OSL_age[osl_i, 3] = 0;
+                    // OSL_age[i,4] = 0; // Deposition age isn't bleached here. That is only done during transport
+                }
+            }
+        }
 
         private void calculate_tillage()
         {
@@ -15521,7 +15720,7 @@ namespace LORICA4
                 for (runner = number_of_data_cells - 1; runner >= 0; runner--)
                 {           // the index is sorted from low to high values, but flow goes from high to low
                     row = row_index[runner]; col = col_index[runner];
-                    // Debug.WriteLine("till1");
+                    //  Debug.WriteLine("till1");
 
                     if (tillfields[row, col] == 1)
                     {
@@ -15542,8 +15741,8 @@ namespace LORICA4
                          // Debug.WriteLine("till2");
                         double[] tilled_text = new double[5]; // includes soil 
                         double[] tilled_om = new double[2]; // includes OM
-                        double[] alldepths = new double[completelayers]; // contains thicknesses of all layers
-                        double[] fraction_mixed = new double[completelayers+1];
+                        double[] alldepths = new double[completelayers + 1]; // contains thicknesses of all layers
+                        double[] fraction_mixed = new double[completelayers + 1];
 
                         // add material from complete layers
                         double mass_soil_before = total_soil_mass(row, col);
@@ -15564,11 +15763,13 @@ namespace LORICA4
                         // Debug.WriteLine("till3");
                         // add material from partial layer and appoint mixed material, and give back material at the same time
                         double frac_ap = (plough_depth - completelayerdepth) / layerthickness_m[row, col, completelayers];
-                        fraction_mixed[completelayers] = frac_ap;
+                        fraction_mixed[completelayers] = frac_ap; // fraction of layer that is mixed
+                        alldepths[completelayers] = plough_depth - completelayerdepth; // part of layer [m] that is considered
                         if (frac_ap > 1)
                         {
                             Debug.WriteLine("err_ti1");
                         }
+
                         for (int tex = 0; tex < 5; tex++) // add partial mass of partial layer
                         {
                             tilled_text[tex] += texture_kg[row, col, completelayers, tex] * frac_ap; // add fraction from partial layer
@@ -15595,16 +15796,44 @@ namespace LORICA4
                             old_SOM_kg[row, col, lay] = tilled_om[0] * (alldepths[lay] / plough_depth);
                             young_SOM_kg[row, col, lay] = tilled_om[1] * (alldepths[lay] / plough_depth);
 
-
                             layerthickness_m[row, col, lay] = thickness_calc(row, col, lay);
                             layerthickness_m[row, col, lay] = thickness_calc(row, col, lay);
                             newdepth += layerthickness_m[row, col, lay];
                         }
                         newdepth += layerthickness_m[row, col, completelayers];
 
-                        
+                        // MvdM Develop: link mixing to sand or silt fraction, or is that not necessary in this case of complete mixing?
+                        if (OSL_checkbox.Checked) // Mix grains from the top layers
+                        {
+                            // Debug.WriteLine("err_tiOSl_1_1");
+                            double[] probs = new double[alldepths.Length];
 
+                            for (int osl_i = 0; osl_i < OSL_age.GetLength(0); osl_i++)
+                            {
+                                if (OSL_age[osl_i, 0] == row & OSL_age[osl_i, 1] == col)
+                                {
+                                    if (OSL_age[osl_i, 2] <= completelayers)
+                                    {
+                                        // Debug.WriteLine("err_tiOSl_1_2");
+                                        int lay = OSL_age[osl_i, 2];
+                                        int P_mixing = Convert.ToInt32(Math.Round(fraction_mixed[lay] * 1000)); // determine probability that a grain gets mixed based on fraction of layer that is mixed
 
+                                        if ((randOslLayerMixing.Next(0, 1000) < P_mixing ? 1 : 0) == 1) // if grain gets mixed
+                                        {
+                                            //Debug.WriteLine("err_tiOSl_1_3");
+                                            for (int iii = 0; iii < alldepths.Length; iii++) { probs[iii] = alldepths[iii]; } // Make a copy of the mixed depths for calculating probabilities
+                                            OSL_age[osl_i, 2] = returnRandomLayer(probs); // determine new layer number based on these probabilities
+                                        }
+                                        // Debug.WriteLine("err_tiOSl_1_4");
+                                    }
+                                }
+                            }
+                        }
+                        double mass_soil_after = total_soil_mass(row, col);
+                        if (Math.Abs(mass_soil_before - mass_soil_after) > 0.0001)
+                        {
+                            Debug.WriteLine("err_ti2");
+                        }
 
                         // Debug.WriteLine("till5");
                         // 2. Calculate redistribution of material
@@ -15638,11 +15867,7 @@ namespace LORICA4
                         // than its lowest lower neighbour (avoiding sinks).
                         // we are also going to limit the tilled amount to avoid row+i, col+j becoming higher than its own lowest higher nb.
                         // that avoids sinks as well.
-                        double mass_soil_after = total_soil_mass(row, col);
-                        if (Math.Abs(mass_soil_before - mass_soil_after) > 0.0001)
-                        {
-                            Debug.WriteLine("err_ti2");
-                        }
+
                         // Debug.WriteLine("till6");
                         for (i = (-1); i <= 1; i++)
                         {
@@ -15712,15 +15937,17 @@ namespace LORICA4
 
                                             //double dz_till_m = temptill;
                                             // Debug.WriteLine("till7");
+
                                             // 2.c update soil properties which are tilled
                                             // top layers are mixed, so it doesn't matter where eroded material comes from.
                                             // problems can arise when eroded depth is larger than plough depth. 
-                                            // development needed for layers with varying bulk density, in the case this occurs in an Ap horizon
+                                            // DEVELOP MvdM: development needed for layers with varying bulk density, in the case this occurs in an Ap horizon
                                             double mass_partial_layer, frac_eroded, total_mass_start, total_mass_end;
 
                                             //total_mass_start = total_soil_mass(row, col);
                                             int layero = 0;
                                             double temptill0 = temptill;
+                                            double frac_sand_eroded = 0;
                                             while (temptill >= layerthickness_m[row, col, layero] | layero >= max_soil_layers) // hele laag wordt verwijderd, al het materiaal naar de volgende cel
                                             {
                                                 for (int tex = 0; tex < 5; tex++)
@@ -15728,6 +15955,8 @@ namespace LORICA4
                                                     texture_kg[row + i, col + j, 0, tex] += texture_kg[row, col, layero, tex];
                                                     texture_kg[row, col, layero, tex] = 0;
                                                 }
+                                                frac_sand_eroded = 1;
+
                                                 young_SOM_kg[row + i, col + j, 0] += young_SOM_kg[row, col, layero];
                                                 young_SOM_kg[row, col, layero] = 0;
                                                 old_SOM_kg[row + i, col + j, 0] += old_SOM_kg[row, col, layero];
@@ -15738,6 +15967,7 @@ namespace LORICA4
                                                 layero++;
                                             }
                                             // Debug.WriteLine("till8");
+
                                             // transport eroded fraction
                                             frac_eroded = temptill / layerthickness_m[row, col, layero];
                                             // mass fraction eroded
@@ -15751,6 +15981,38 @@ namespace LORICA4
                                             old_SOM_kg[row + i, col + j, 0] += old_SOM_kg[row, col, layero] * frac_eroded;
                                             old_SOM_kg[row, col, layero] -= old_SOM_kg[row, col, layero] * frac_eroded;
 
+
+                                            if (OSL_checkbox.Checked)
+                                            {
+                                                int probRange = 1000;
+                                                int transport_P_int;
+                                                // Debug.WriteLine("err_tiOSl1");
+                                                for (int osl_i = 0; osl_i < OSL_age.GetLength(0); osl_i++) // loop over all rows
+                                                {
+                                                    if (OSL_age[osl_i, 0] == row & OSL_age[osl_i, 1] == col & OSL_age[osl_i, 2] <= layero) // do row, col and layer match?
+                                                    {
+                                                        // Probability that a grain is eroded is equal to the fraction of the layer that is eroded
+                                                        transport_P_int = Convert.ToInt32(Math.Round(frac_eroded * probRange));
+
+                                                        // In case the whole layer is eroded, this probability is set to 1
+                                                        if (OSL_age[osl_i, 2] < layero) { transport_P_int = 1 * probRange; }
+                                                        // Debug.WriteLine("err_tiOSl2");
+                                                        if ((randOslTillageTransport.Next(0, probRange) < transport_P_int ? 1 : 0) == 1) // does transport occur?
+                                                        {
+                                                            // Transport to top layer 0 at row+i and col+j, just as the sediments
+                                                            OSL_age[osl_i, 0] = row + i;
+                                                            OSL_age[osl_i, 1] = col + j;
+                                                            OSL_age[osl_i, 2] = 0;
+
+                                                            // Reset deposition and stabilization age (complete mixing during transport)
+                                                            // MvdM DEVELOP: incomplete bleaching during transport
+                                                            OSL_age[osl_i, 3] = 0;
+                                                            OSL_age[osl_i, 4] = 0;
+                                                        }
+                                                        // Debug.WriteLine("err_tiOSl3");
+                                                    }
+                                                }
+                                            }
 
                                             layerthickness_m[row, col, layero] = thickness_calc(row, col, layero);
                                             layerthickness_m[row + i, col + j, 0] = thickness_calc(row, col, layero);
@@ -15768,8 +16030,8 @@ namespace LORICA4
                         }//end for i
                     } //end if tillfields
                 }   // end  for 
-                    // Debug.WriteLine("till9");
-                    // 3. Update elevation changes
+                // Debug.WriteLine("till9");
+                // 3. Update elevation changes
                 for (row = 0; row < nr; row++)
                 {
                     for (col = 0; col < nc; col++)
@@ -17189,29 +17451,29 @@ namespace LORICA4
                 {
                     for (int col = 0; col < nc; col++)
                     {
-                        if(dtm[row,col] !=-9999)
+                        if (dtm[row, col] != -9999)
                         {
                             double tpisum = 0;
-                        double tpicount = 0;
+                            double tpicount = 0;
 
-                        // calculate moving window average
-                        for (int rr = windowrange * -1; rr <= windowrange; rr++)
-                        {
-                            for (int cc = windowrange * -1; cc <= windowrange; cc++)
+                            // calculate moving window average
+                            for (int rr = windowrange * -1; rr <= windowrange; rr++)
                             {
-                                if (row + rr >= 0 & row + rr < nr & col + cc >= 0 & col + cc < nc) // if cell exists in the DEM, 
+                                for (int cc = windowrange * -1; cc <= windowrange; cc++)
                                 {
-                                    if(dtm[row + rr, col + cc] != -9999 & rr != 0 & cc != 0) // if cell contains a value and cell isn't the target cell, it's considered in the TPI
+                                    if (row + rr >= 0 & row + rr < nr & col + cc >= 0 & col + cc < nc) // if cell exists in the DEM, 
                                     {
-                                        tpisum += dtm[row + rr, col + cc];
-                                        tpicount += 1;
+                                        if (dtm[row + rr, col + cc] != -9999 & rr != 0 & cc != 0) // if cell contains a value and cell isn't the target cell, it's considered in the TPI
+                                        {
+                                            tpisum += dtm[row + rr, col + cc];
+                                            tpicount += 1;
+                                        }
                                     }
                                 }
                             }
+                            tpi[row, col] = dtm[row, col] - (tpisum / tpicount);
                         }
-                        tpi[row, col] = dtm[row, col] - (tpisum / tpicount);
-                        }
-                        
+
                     }
                 }
                 //Debug.WriteLine("Finished calculating TPI");
@@ -17929,7 +18191,7 @@ namespace LORICA4
             }
 
         }
-        
+
         void calc_write_fourier_transform(double[] timeseries_signal)
         {
             filter_timeseries(timeseries_signal, 9);
@@ -18580,33 +18842,36 @@ Example: rainfall.asc can look like:
 
         #region calibration code
 
-        private void calib_calculate_maxruns( int calibparacount )
+        private void calib_calculate_maxruns(int calibparacount)
         {
             //this code calculates the total number of runs needed when calibrating
             string calibration_ratio_string = calibration_ratios_textbox.Text;
             string[] ratiowords = calibration_ratio_string.Split(';');
             int ratio;
             for (ratio = 0; ratio < ratiowords.Length; ratio++)
-                for (int par = 0; par < calibparacount; par++) {
-                    try {
+                for (int par = 0; par < calibparacount; par++)
+                {
+                    try
+                    {
                         calib_ratios[par, ratio] = Convert.ToDouble(ratiowords[ratio]);
                     }
                     catch { input_data_error = true; MessageBox.Show("Calibration ratio input error"); }
                 }
             try { calib_levels = Convert.ToInt32(calibration_levels_textbox.Text); }
             catch { input_data_error = true; MessageBox.Show("Calibration iterations must be an integer"); }
-            maxruns = calib_levels * Convert.ToInt32(Math.Pow(ratiowords.Length,calibparacount));
+            maxruns = calib_levels * Convert.ToInt32(Math.Pow(ratiowords.Length, calibparacount));
             Debug.WriteLine(" the number of runs for calibration will be " + maxruns);
         }
 
-        private void calib_shift_and_zoom(int para_number, double zoom_factor, double orig_par_value) {
+        private void calib_shift_and_zoom(int para_number, double zoom_factor, double orig_par_value)
+        {
             //this code iinds out whether the best parameter value was on the edge or inside the range explored. Then shifts and zooms out or in , depending
             try
             {
                 Debug.WriteLine(" para number " + para_number);
                 Debug.WriteLine(" best_parameter value " + best_parameters[para_number]);
                 double mid_ratio = 0;
-                if (calib_ratios.GetLength(1) % 2 == 0) { mid_ratio = (calib_ratios[para_number, Convert.ToInt32(calib_ratios.GetLength(1) / 2)-1] + calib_ratios[para_number, Convert.ToInt32((calib_ratios.GetLength(1) / 2) )]) / 2; }
+                if (calib_ratios.GetLength(1) % 2 == 0) { mid_ratio = (calib_ratios[para_number, Convert.ToInt32(calib_ratios.GetLength(1) / 2) - 1] + calib_ratios[para_number, Convert.ToInt32((calib_ratios.GetLength(1) / 2))]) / 2; }
                 else { mid_ratio = calib_ratios[para_number, Convert.ToInt32(calib_ratios.GetLength(1) / 2 - 0.5)]; }
                 Debug.WriteLine("mid ratio is " + mid_ratio);
                 Double best_ratio = best_parameters[para_number] / orig_par_value;
@@ -18615,7 +18880,7 @@ Example: rainfall.asc can look like:
                 {
                     //the best parameter ratio (and thus value) was on the edge of the range. We must shift our range sideways (we keep the same ratio between upper and lower ratio - are you still with me?)
                     Debug.WriteLine(" currentpara value was on edge of range");
-                    
+
                     for (int ratio = 0; ratio < calib_ratios.GetLength(1); ratio++)
                     {
                         Debug.WriteLine(" setting ratio " + calib_ratios[para_number, ratio] + " to " + calib_ratios[para_number, ratio] * (best_ratio / mid_ratio));
@@ -18655,7 +18920,8 @@ Example: rainfall.asc can look like:
             Debug.WriteLine(" calib tst - calib_prepare_rep - added first line to file");
         }
 
-        private void calib_update_report(double objective_fnct_result) {
+        private void calib_update_report(double objective_fnct_result)
+        {
             //this code updates a calibration report
             //it writes parameters and objective function outcomes to disk
             string FILENAME = workdir + "\\calibration.log";
@@ -18664,13 +18930,13 @@ Example: rainfall.asc can look like:
                 try
                 {
                     //USER INPUT NEEDED IN FOLLOWING LINE: ENTER THE CALIBRATION PARAMETERS 
-                    sw.WriteLine(run_number + " " + objective_fnct_result + " " + advection_erodibility + " " + conv_fac );
+                    sw.WriteLine(run_number + " " + objective_fnct_result + " " + advection_erodibility + " " + conv_fac);
                 }
                 catch { Debug.WriteLine(" issue with writing a line in the calibration log file"); }
             }
             Debug.WriteLine(" calib tst - calib_update_rep - added line to file");
         }
-        
+
         private void calib_finish_report()
         {
             //this code closes a calibration report
@@ -18707,7 +18973,7 @@ Example: rainfall.asc can look like:
                 {
                     if (dtm[row, col] != -9999)
                     {
-                        simulated_ero_m3 -= (dz_ero[row, col] - dz_sed[row, col]) *dx*dx;
+                        simulated_ero_m3 -= (dz_ero[row, col] - dz_sed[row, col]) * dx * dx;
                     }
                 }
             }
@@ -18830,7 +19096,7 @@ Example: rainfall.asc can look like:
                 maxruns = 1;
                 int currentlevel = 0;
 
-                if (Calibration_button.Checked == true )
+                if (Calibration_button.Checked == true)
                 {
                     int runs_per_level = 0;
                     //CALIB_USER INPUT NEEDED NEXT LINE IN THE CODE :
@@ -18848,18 +19114,19 @@ Example: rainfall.asc can look like:
                             original_ratios[rat] = Convert.ToDouble(calibration_ratios_textbox.Text.Split(';')[rat]);
                             for (int par = 0; par < user_specified_number_of_calibration_parameters; par++)
                             {
-                                calib_ratios[par, rat] = Convert.ToDouble(calibration_ratios_textbox.Text.Split(';')[rat]); 
+                                calib_ratios[par, rat] = Convert.ToDouble(calibration_ratios_textbox.Text.Split(';')[rat]);
                             }
                         }
                         catch { Debug.WriteLine(" problem setting original parameter ratios for calibration "); }
                     }
                     calib_calculate_maxruns(user_specified_number_of_calibration_parameters);
-                    Debug.WriteLine( maxruns);
+                    Debug.WriteLine(maxruns);
                     calib_prepare_report();
                     //CALIB_USER: set the number of parameters and their initial value
-                    
+
                 }
-                if (Sensitivity_button.Checked == true) { //dev needed
+                if (Sensitivity_button.Checked == true)
+                { //dev needed
                 }
                 for (run_number = 0; run_number < maxruns; run_number++)
                 {
@@ -19146,7 +19413,8 @@ Example: rainfall.asc can look like:
 
                         //CALIB_USER: multiply parameter values with current ratio
                         //Note the correspondence between the formulas. Change only 1 value for additional parameters!
-                        if(Calibration_button.Checked == true){  
+                        if (Calibration_button.Checked == true)
+                        {
                             //Debug.WriteLine("erodib " + advection_erodibility + " conv fac " + conv_fac);
                             int rat_number = Convert.ToInt32(Math.Floor(run_number / Math.Pow(user_specified_number_of_ratios, 0)) % user_specified_number_of_ratios);
                             advection_erodibility *= calib_ratios[0, rat_number];
@@ -19220,7 +19488,7 @@ Example: rainfall.asc can look like:
                         map_controls.Visible = false;
                     }
 
-                    if (Calibration_button.Checked == true )
+                    if (Calibration_button.Checked == true)
                     {
                         //calculate how good this run was:
                         double current_error = calib_objective_function();
@@ -19229,10 +19497,11 @@ Example: rainfall.asc can look like:
                         if (current_error < best_error) { best_error = current_error; calib_update_best_paras(); best_run = run_number; }
                         //and check whether one 'level' of calibration has finished. If so, we have to change parameter values
                         Debug.WriteLine("run " + run_number + " number paras " + user_specified_number_of_calibration_parameters + " number ratios " + calibration_ratios_textbox.Text.Split(';').Length);
-                        if ((run_number+1) % Convert.ToInt32(Math.Pow(calibration_ratios_textbox.Text.Split(';').Length, user_specified_number_of_calibration_parameters )) == 0) {
+                        if ((run_number + 1) % Convert.ToInt32(Math.Pow(calibration_ratios_textbox.Text.Split(';').Length, user_specified_number_of_calibration_parameters)) == 0)
+                        {
 
                             //a level of calibration has finished
-                            
+
                             //If it was the last level, we are now done
                             currentlevel++;
                             Debug.WriteLine(" successfully finished a level of calibration runs");
@@ -19246,16 +19515,17 @@ Example: rainfall.asc can look like:
                                 Debug.WriteLine(" setting new ratios ");
                                 //CALIB_USER INPUT NEEDED HERE IN CODE
                                 //check whether the best run was on the edge of parameter space or inside, shift to that place and zoom out or in
-                                calib_shift_and_zoom(0, double.Parse(calibration_ratio_reduction_parameter_textbox.Text), double.Parse(parameter_K_textbox.Text) );
-                                calib_shift_and_zoom(1, double.Parse(calibration_ratio_reduction_parameter_textbox.Text), double.Parse(parameter_conv_textbox.Text) );
+                                calib_shift_and_zoom(0, double.Parse(calibration_ratio_reduction_parameter_textbox.Text), double.Parse(parameter_K_textbox.Text));
+                                calib_shift_and_zoom(1, double.Parse(calibration_ratio_reduction_parameter_textbox.Text), double.Parse(parameter_conv_textbox.Text));
                             }
-                        } else
+                        }
+                        else
                         {
                             //nothing. Parameter values are adapted with the corresponding ratios to continue calibration above.
                         }
                     }
 
-                    } // exit point for consecutive runs
+                } // exit point for consecutive runs
 
 
             } // end try
@@ -19426,20 +19696,25 @@ Example: rainfall.asc can look like:
             {
                 comb_sort();
                 int tilltime = 0;
-                //if (check_time_till_fields.Checked) { tilltime = till_record[t]; }
-                //else { tilltime = 1; }
+                if (check_time_till_fields.Checked) { tilltime = till_record[t]; }
+                else { tilltime = 1; }
 
-                if (t > (end_time - 500)) { tilltime = 1; }
+                // if (t > (end_time - 500)) { tilltime = 1; } //MvdM Code to simulate tillage only in the last 500 years of the run. Used in SOIL paper
+
                 if (tilltime == 1)
                 {
-
-
                     initialise_every_till();
                     calculate_tillage();
                     soil_update_split_and_combine_layers();
                 }
-
             }
+
+            if (OSL_checkbox.Checked)
+            {
+                double bleaching_p = 1.0; // complete bleaching of top layer for now
+                update_and_bleach_OSL_ages(bleaching_p);
+            }
+
             //Debug.WriteLine("after TI");
             //displaysoil(0, 0);
             if (landslide_active)
@@ -19455,7 +19730,7 @@ Example: rainfall.asc can look like:
 
             #endregion
 
-            #region pedogenic processes
+            #region Pedogenic processes
 
 
             pedo_start = DateTime.Now;
@@ -19537,14 +19812,15 @@ Example: rainfall.asc can look like:
             if (soil_carbon_active)
             {
                 // Debug.WriteLine("calculating carbon dynamics ");
-                if(version_lux_checkbox.Checked)
+                if (version_lux_checkbox.Checked)
                 {
                     soil_litter_cycle();
-                } else
+                }
+                else
                 {
                     soil_carbon_cycle();
                 }
-                
+
             }
             if (NA_anywhere_in_soil() == true) { Debug.WriteLine("NA found after soil carbon"); }
             if (decalcification_checkbox.Checked)
@@ -19552,7 +19828,7 @@ Example: rainfall.asc can look like:
                 //Debug.WriteLine("calculating decalcification");
                 soil_decalcification();
             }
-            
+
             if (soil_bioturb_active)
             {
                 // Debug.WriteLine("calculating bioturbation");
@@ -19619,12 +19895,12 @@ Example: rainfall.asc can look like:
                         }
                     }
                     catch { MessageBox.Show("vegetation type has not been written"); }
-                    
+
 
 
                 }
 
-                if (version_lux_checkbox.Checked==true)
+                if (version_lux_checkbox.Checked == true)
                 {
                     try
                     {
@@ -19639,7 +19915,7 @@ Example: rainfall.asc can look like:
 
                         foreach (string type in litter_types) // loop over different SOM types
                         {
-                             // determine which SOM fraction should be considered
+                            // determine which SOM fraction should be considered
                             bool h_bool = false; bool b_bool = false;
                             if (type == "hornbeam") { h_bool = true; }
                             if (type == "beech") { b_bool = true; }
@@ -19652,7 +19928,7 @@ Example: rainfall.asc can look like:
                                 if (output == "stocks_kgm2") { numberoflayers = max_soil_layers; }
                                 if (output == "toplayer_frac") { numberoflayers = 1; }
 
-                                double[,] output_litter_map = new double[nr, nc] ;
+                                double[,] output_litter_map = new double[nr, nc];
                                 for (int row = 0; row < nr; row++)
                                 {
                                     for (int col = 0; col < nc; col++)
@@ -19661,7 +19937,7 @@ Example: rainfall.asc can look like:
                                         double mineralsoil_toplayer_kg = 0;
                                         if (h_bool) { litterstock_kg += litter_kg[row, col, 0]; }
                                         if (b_bool) { litterstock_kg += litter_kg[row, col, 1]; }
-                                        
+
                                         if (output == "toplayer_frac")
                                         {
                                             for (int tex = 0; tex < 5; tex++)
@@ -19865,6 +20141,15 @@ Example: rainfall.asc can look like:
                     {
                         try { out_double(workdir + "\\" + run_number + "_" + t_out + "_out_tillage.asc", sum_tillage); }
                         catch { MessageBox.Show("tillage has not been written"); }
+                    }
+                }
+
+                if (OSL_checkbox.Checked)
+                {
+                    try { writeOSLages(); }
+                    catch
+                    {
+                        Debug.WriteLine("OSl ages have not been written");
                     }
                 }
                 if (Landslide_checkbox.Checked)
@@ -20135,7 +20420,9 @@ Example: rainfall.asc can look like:
             if (sorting_error == 1)
             {
                 Debug.WriteLine(" Sorting error in comb_sort ");
-            } else {
+            }
+            else
+            {
                 //Debug.WriteLine(" Sorting test successful ");
             }
         }
