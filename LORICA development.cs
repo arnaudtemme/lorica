@@ -12516,9 +12516,9 @@ namespace LORICA4
 
                 //Debug.WriteLine(" moved layers one down to make space for split layer ");
 
-                // MvdM cleaned up the code below. I removed the if-esle statement for even splitting or uneven splitting and use div to split the layers. If even splitting, div = 0.5, if not, div gets recalculated
+                // MvdM cleaned up the code below. I removed the if-else statement for even splitting or uneven splitting and use div to split the layers. If even splitting, div = 0.5, if not, div gets recalculated
                 double div = 0.5;
-                if ((lay1 + 1) == (max_soil_layers - 1)) // if one of the splitting layers is the last layers, 
+                if ((lay1 + 1) == (max_soil_layers)) // if one of the splitting layers is the last layer, 
                 {
                     div = 0.1 / (layerthickness_m[row, col, lay1]); // aim to have the split layer at ~0.1 m
                 }
@@ -12554,6 +12554,8 @@ namespace LORICA4
                 {
                     int probRange = 10000;
                     int splitting_P_int = Convert.ToInt32(Math.Round(div * probRange));
+                    int count_lay_i = 0;
+                    int count_lay_j = 0;
 
                     for (int osl_i = 0; osl_i < OSL_age.GetLength(0); osl_i++) // loop over all rows
                     {
@@ -12565,13 +12567,19 @@ namespace LORICA4
                             } // move layers down, create empty layer below lay1
                             if (OSL_age[osl_i, 2] == (lay1))
                             {
-                                if (OSL_age[osl_i, 2] == 0 & (randOslSplitLayers.Next(0, probRange) < splitting_P_int ? 1 : 0) == 1) // determine whether grain will be moved to new layer, with probability of div
+                                if ((randOslSplitLayers.Next(0, probRange) < splitting_P_int ? 1 : 0) == 1) // determine whether grain will be moved to new layer, with probability of div
                                 {
                                     OSL_age[osl_i, 2] += 1;
+                                    count_lay_i += 1;
+                                }
+                                else
+                                {
+                                    count_lay_j += 1;
                                 }
                             }
                         }
                     }
+                    if (count_lay_i == 0 | count_lay_j == 0) { Debug.WriteLine("Split layer with zero grains. Layer {0}. Grains in layer i: {1}. Grains in layer j: {2}. Div: {3}", lay1, count_lay_i, count_lay_j, div); }
                 }
             }
             catch
